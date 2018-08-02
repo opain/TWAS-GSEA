@@ -17,7 +17,7 @@ make_option("--expression_ref", action="store", default=NA, type='character',
 make_option("--n_cores", action="store", default=1, type='numeric',
 	help="Number of cores for permutation testing [optional]"),
 make_option("--cor_window", action="store", default=5e6, type='numeric',
-	help="Number of cores for permutation testing [optional]"),
+	help="Size of window for correlations between genes [optional]"),
 make_option("--covar", action="store", default=c('GeneLength','NSNP','MODELCV.R2'), type='character',
 	help="Covariates you would like to include. Specify 'none' if you don't want any. [optional]"),
 make_option("--min_Ngenes", action="store", default=5, type='numeric',
@@ -346,7 +346,7 @@ if(opt$competitive == T){
 			setTxtProgressBar(pb, i)
 			if(is.na(opt$prop_file) == T){
 			data.frame(	GeneSet=gene_sets_min5[i],
-						NGenesAvail=paste(sum(TWAS_GS_Mem_min5[,names(TWAS_GS_Mem_min5) == gene_sets_min5[i]]), '/', length(gene_sets_min5[[i]]), sep=''),
+						NGenesAvail=paste(sum(TWAS_GS_Mem_min5[,names(TWAS_GS_Mem_min5) == gene_sets_min5[i]]), '/', length(gene_sets[[gene_sets_min5[i]]]), sep=''),
 						Estimate=coefs$Estimate[2],
 						SE=coefs$Std..Error[2],
 						T=coefs$t.value[2],
@@ -370,7 +370,7 @@ if(opt$competitive == T){
 			setTxtProgressBar(pb, i)
 			if(is.na(opt$prop_file) == T){
 				data.frame(	GeneSet=gene_sets_min5[i],
-							NGenesAvail=paste(sum(TWAS_GS_Mem_min5[,names(TWAS_GS_Mem_min5) == gene_sets_min5[i]]), '/', length(gene_sets_min5[[i]]), sep=''),
+							NGenesAvail=paste(sum(TWAS_GS_Mem_min5[,names(TWAS_GS_Mem_min5) == gene_sets_min5[i]]), '/', length(gene_sets[[gene_sets_min5[i]]]), sep=''),
 							Estimate=coefs$Estimate[2],
 							SE=coefs$Std..Error[2],
 							T=coefs$t.value[2],
@@ -399,7 +399,7 @@ if(opt$self_contained == T){
 			setTxtProgressBar(pb, i)
 		if(is.na(opt$prop_file) == T){
 			data.frame(	GeneSet=gene_sets_min5[i],
-						NGenesAvail=paste(sum(TWAS_GS_Mem_min5[,names(TWAS_GS_Mem_min5) == gene_sets_min5[i]]), '/', length(gene_sets_min5[[i]]), sep=''),
+						NGenesAvail=paste(sum(TWAS_GS_Mem_min5[,names(TWAS_GS_Mem_min5) == gene_sets_min5[i]]), '/', length(gene_sets[[gene_sets_min5[i]]]), sep=''),
 						Estimate=coefs$Estimate[1],
 						SE=coefs$Std..Error[1],
 						T=coefs$t.value[1],
