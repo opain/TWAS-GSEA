@@ -19,6 +19,7 @@ TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test
   * VGAM
   * biomaRt
   * qusage
+  * gdata
   * lme4qtl
   * lme4
   * matrixcalc
@@ -28,7 +29,7 @@ TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test
 
 * Perform TWAS using FUSION:
   * Instructions on how to perform a TWAS are available [here](http://gusevlab.org/projects/fusion/).
-* Impute gene expression levels in the target sample:
+* Impute gene expression levels in a reference sample:
   * Instructions on how to impute gene expression levels are [here](http://gusevlab.org/projects/fusion/).
 
 
@@ -55,13 +56,13 @@ The first column should have the header 'ID' and contain gene ids. These are ass
 
 ### Output files
 
-##### '.competitive.txt' 
+##### '.txt' 
 
-This is a space delimited file containing the results of the competitive gene set or property analysis.
+These space delimited files will contain all results for either competitive linear models, competitive mixed models, or self-contained mixed models.
 
-##### '.self_contained.txt'
+##### '.sig.txt'
 
-This is a space delimited file containing the results of the self-contained gene set analysis.
+These files will contain a breakdown of the genes within gene sets achieving significance for either competitive linear models, competitive mixed models, or self-contained mixed models.
 
 ##### '.png'
 
@@ -75,29 +76,35 @@ This is a log file containing general information on the time taken, any errors,
 
 ### Optional parameters
 
-##### --use_twas_id
-
-Specify as T if gene property file contains IDs in the TWAS file ID column instead of entrez IDs.
-
-Default = F
-
 ##### --n_cores
 
 Number of cores for permutation testing.
 
 Default = 1
 
+##### --covar
+
+Covariates you would like to include. The covariate data must be in the TWAS file, except gene length. Covariate names must be comma separated (e.g. GeneLength,NSNP,MODELCV.R2). Specify 'none' if you don't want include any covariates.
+
+Default = 'none'
+
+##### --weights
+
+Variable used to weight observations. The variable must be in the TWAS file.
+
+Default = NA
+
+##### --use_twas_id
+
+Specify as T if gene property file contains IDs in the TWAS file ID column instead of entrez IDs.
+
+Default = F
+
 ##### --cor_window
 
 Size of window for correlations between genes.
 
 Default = 5e6
-
-##### --covar
-
-Covariates you would like to include. Specify 'none' if you don't want any. The covariate data must be in the TWAS file, except gene length.
-
-Default = GeneLength,NSNP,MODELCV.R2
 
 ##### --min_Ngenes
 
@@ -116,6 +123,10 @@ Default = T
 Specify as F if you want to used abs(TWAS.Z) as the outcome.
 
 Default = T
+
+##### --p_cor_method
+
+Select method for correction of multiple testing. Options are the same as the method option for the p.adjust function.
 
 ##### --outlier_threshold
 
@@ -157,13 +168,19 @@ Default = T
 
 Specify the R-squared threshold between genes for pruning.
 
-Default = 0.9
+Default = 1
 
 ##### --min_r2
 
 Specify the R-squared threshold between genes assuming independence.
 
 Default = 0.0001
+
+##### --linear_p_thresh
+
+Linear model p-value threshold for mixed model analysis. Default behavior is to use a multiple testing corrected p-value threshold of 0.1.
+
+Default = NA
 
 ##### --output
 
