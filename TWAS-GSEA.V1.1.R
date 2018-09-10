@@ -30,8 +30,8 @@ make_option("--probit_P_as_Z", action="store", default=T, type='logical',
 	help="Specify as F if you want to used abs(TWAS.Z) as the outcome [optional]"),
 make_option("--p_cor_method", action="store", default='fdr', type='character',
 	help="Select method for correction of multiple testing. Options are the same as the method option for the p.adjust function [optional]"),
-make_option("--outlier_threshold", action="store", default=3, type='numeric',
-	help="Threshold for truncating Z scores [optional]"),
+make_option("--outlier_threshold", action="store", default='-3,6', type='character',
+	help="Thresholds for truncating Z scores [optional]"),
 make_option("--save_CorMat", action="store", default=F, type='logical',
 	help="Specify T if you would like to save the correlation matrix [optional]"),
 make_option("--input_CorMat", action="store", default=NA, type='character',
@@ -55,6 +55,7 @@ make_option("--output", action="store", default=NA, type='character',
 opt = parse_args(OptionParser(option_list=option_list))
 
 opt$covar<- as.character(unlist(strsplit(opt$covar,',')))
+opt$outlier_threshold<- as.numeric(unlist(strsplit(opt$outlier_threshold,',')))
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 if(is.na(opt$twas_results) == T){
@@ -73,8 +74,7 @@ if(is.na(opt$output) == T){
 }
 
 if(is.na(opt$expression_ref) == T & is.na(opt$input_CorMat) == T){
-	cat('Either expression_ref or input_CorMat must be specified\n.')
-	q()
+	cat('Either expression_ref or input_CorMat must be specified for mixed models\n.')
 }
 
 if(is.na(opt$gmt_file) == T & is.na(opt$prop_file) == T){
@@ -89,7 +89,6 @@ if(is.na(opt$gmt_file) == F & is.na(opt$prop_file) == F){
 
 if(opt$self_contained == F & opt$competitive == F){
 	cat('Both competitive and self_contained have been set to false\n.')
-	q()
 }
 
 sink()
@@ -147,12 +146,12 @@ if(opt$allow_duplicate_ID == F){
 if(opt$probit_P_as_Z == T){
 	# Create a normally distributed absolute TWAS.Z value using a probit transformation
 	TWAS$ZSCORE<-probit(1-TWAS$TWAS.P)
-	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold] <- opt$outlier_threshold
-	TWAS$ZSCORE[TWAS$ZSCORE < -opt$outlier_threshold] <- -opt$outlier_threshold
+	TWAS$ZSCORE[TWAS$ZSCORE < opt$outlier_threshold[1]] <- opt$outlier_threshold[1]
+	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
 } else {
 	# Remove the sign from TWAS.Z values
 	TWAS$ZSCORE<-abs(TWAS$TWAS.Z)
-	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold] <- opt$outlier_threshold
+	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
 }
 
 # Convert the TWAS gene names into the human Entrez IDs that are in the gene sets
@@ -220,6 +219,10 @@ if(is.na(opt$prop_file) == F){
 		TWAS_GS_Prop<-merge(TWAS_GS, gene_prop, by.x='entrezgene', by.y='ID')
 	} else {
 		TWAS_GS_Prop<-merge(TWAS_GS, gene_prop, by.x='ID', by.y='ID')
+	}
+	
+	for(i in names(gene_prop[-1])){
+		TWAS_GS_Prop[[i]]<-as.numeric(scale(TWAS_GS_Prop[[i]]))
 	}
 
 	TWAS_GS_Mem_clean<-TWAS_GS_Prop
@@ -295,6 +298,9 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 		cat('Gene expression values contain', dim(GeneX_all)[2]-2,'non-zero variance features and',dim(GeneX_all)[1],'individuals.\n')
 		
 		# Extract genes available in TWAS and correlation matrix
+		TWAS_GS_Mem_clean$FILE<-gsub(':','.',TWAS_GS_Mem_clean$FILE)
+		names(GeneX_all)<-gsub(':','.',names(GeneX_all))
+		
 		genes_overlap<-intersect(TWAS_GS_Mem_clean$FILE, names(GeneX_all))
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% genes_overlap),]
 		GeneX_all<-GeneX_all[(names(GeneX_all) %in% genes_overlap)]
@@ -535,49 +541,51 @@ if(is.na(opt$gmt_file) == F){
 			write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
 			cat('\n')
 		}
-	sink()
+		sink()
 	}
 	
-	if(sum(Results_Comp$P.CORR <= 0.05) > 0){
-		sink(file = paste(opt$output,'.competitive.sig.txt',sep=''), append = F)
-		Results_sig<-Results_Comp[Results_Comp$P.CORR <= 0.05,]
-		Results_sig<-Results_sig[order(Results_sig$P.CORR),]
-		for(i in 1:dim(Results_sig)[1]){
-			TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-			TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','start_position','end_position','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
-			TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
-			TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
-			TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
-			TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-			TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$start_position),]
-			cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
-			TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
-			write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
-			cat('\n')
+	if(length(gene_sets_clean_forMLM) != 0){
+		if(sum(Results_Comp$P.CORR <= 0.05) > 0){
+			sink(file = paste(opt$output,'.competitive.sig.txt',sep=''), append = F)
+			Results_sig<-Results_Comp[Results_Comp$P.CORR <= 0.05,]
+			Results_sig<-Results_sig[order(Results_sig$P.CORR),]
+			for(i in 1:dim(Results_sig)[1]){
+				TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
+				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','start_position','end_position','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
+				TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
+				TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
+				TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
+				TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
+				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$start_position),]
+				cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
+				TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
+				write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
+				cat('\n')
+			}
+			sink()
 		}
-	sink()
 	}
-	
-	if(sum(Results_SelfCont$P.CORR <= 0.05) > 0){
-		sink(file = paste(opt$output,'.self_contained.sig.txt',sep=''), append = F)
-		Results_sig<-Results_SelfCont[Results_SelfCont$P.CORR <= 0.05,]
-		Results_sig<-Results_sig[rev(order(Results_sig$Estimate)),]
-		for(i in 1:dim(Results_sig)[1]){
-			TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-			TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','start_position','end_position','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
-			TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
-			TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
-			TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
-			TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-			TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$start_position),]
-			cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (Mean = ',Results_sig$Estimate[i],', P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
-			TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
-			write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
-			cat('\n')
+	if(opt$self_contained == T){
+		if(sum(Results_SelfCont$P.CORR <= 0.05) > 0){
+			sink(file = paste(opt$output,'.self_contained.sig.txt',sep=''), append = F)
+			Results_sig<-Results_SelfCont[Results_SelfCont$P.CORR <= 0.05,]
+			Results_sig<-Results_sig[rev(order(Results_sig$Estimate)),]
+			for(i in 1:dim(Results_sig)[1]){
+				TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
+				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','start_position','end_position','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
+				TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
+				TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
+				TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
+				TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
+				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$start_position),]
+				cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (Mean = ',Results_sig$Estimate[i],', P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
+				TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
+				write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
+				cat('\n')
+			}
+			sink()
 		}
-	sink()
 	}
-
 }
 
 end.time <- Sys.time()

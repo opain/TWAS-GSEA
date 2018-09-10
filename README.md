@@ -10,27 +10,17 @@ TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test
 
 ### Prerequisites
 
-* Install the following R packages:
-  * data.table
-  * optparse
-  * GWASTools
-  * WGCNA
-  * Matrix
-  * VGAM
-  * biomaRt
-  * qusage
-  * gdata
-  * lme4qtl
-  * lme4
-  * matrixcalc
-  * pbkrtest
-  * foreach
-  * doMC
+* Install R and the following packages:
+  
+```R
+install.packages(c('data.table','optparse','GWASTools','WGCNA','Matrix','VGAM','biomaRt','qusage','gdata','lme4qtl','lme4','matrixcalc','pbkrtest','foreach','doMC'))
+```
 
 * Perform TWAS using FUSION:
   * Instructions on how to perform a TWAS are available [here](http://gusevlab.org/projects/fusion/).
+
 * Impute gene expression levels in a reference sample:
-  * Instructions on how to impute gene expression levels are [here](http://gusevlab.org/projects/fusion/).
+  * Instructions on how to impute gene expression levels are [here](http://gitlab.psycm.cf.ac.uk/mpmop/Predicting-TWAS-features/tree/master).
 
 
 
@@ -42,7 +32,7 @@ The output of [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas
 
 ##### --expression_ref
 
-A file containing gene expression values in a reference sample (e.g. the FUSION 1000 genomes reference).  The first two columns are should FID and IID, then each column should contain gene expression data. An example is available [here](http://gitlab.psycm.cf.ac.uk/mpmop/gene-expression-risk-scoring/blob/master/CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv). The gene expression column names must match the values in the FILE column in the --twas_results file. IFRisk ignores the substring before the last '/' and the '.wgt.RDat' string when matching. For example, the column name for the gene expression corresponding to the first value of the [example TWAS results](http://gitlab.psycm.cf.ac.uk/mpmop/gene-expression-risk-scoring/blob/master/ukbiobank-2017-1160-prePRS-fusion.tsv.GW) should be 'CMC.LOC643837'. The file must be readable by the fread function in R.
+A file containing feature predictions in the target sample. This is output of the FeaturePred script. The first two columns are FID and IID, then each column contains feature predictions for each individual. An example is available here. The gene expression column names must match the values in the FILE column in the --twas_results file. IFRisk ignores the substring before the last '/' and the '.wgt.RDat' string when matching. For example, the column name for the gene expression corresponding to the first value of the example TWAS results should be 'CMC.LOC643837'. The file can whitespace or comma delimited. If the file name ends .gz, the file will be assumed to gzipped.
 
 ##### --gmt_file (for gene set analysis)
 
@@ -54,31 +44,11 @@ The first column should have the header 'ID' and contain gene ids. These are ass
 
 
 
-### Output files
-
-##### '.txt' 
-
-These space delimited files will contain all results for either competitive linear models, competitive mixed models, or self-contained mixed models.
-
-##### '.sig.txt'
-
-These files will contain a breakdown of the genes within gene sets achieving significance for either competitive linear models, competitive mixed models, or self-contained mixed models.
-
-##### '.png'
-
-A QQ-plot, comparing the observed association results to a null distribution.
-
-##### '.log'
-
-This is a log file containing general information on the time taken, any errors, the number of genes at different stages and more.
-
-
-
 ### Optional parameters
 
 ##### --n_cores
 
-Number of cores for permutation testing.
+Number of cores for parallel computing.
 
 Default = 1
 
@@ -190,11 +160,31 @@ Default = NULL
 
 
 
+### Output files
+
+##### '.txt'
+
+These space delimited files will contain all results for either competitive linear models, competitive mixed models, or self-contained mixed models.
+
+##### '.sig.txt'
+
+These files will contain a breakdown of the genes within gene sets achieving significance for either competitive linear models, competitive mixed models, or self-contained mixed models.
+
+##### '.png'
+
+A QQ-plot, comparing the observed association results to a null distribution.
+
+##### '.log'
+
+This is a log file containing general information on the time taken, any errors, the number of genes at different stages and more.
+
+
+
 ## Example
 
 ##### When using default settings:
 
-```R
+```sh
 Rscript TWAS-GSEA.V1.0.R \
 	--twas_results ukbiobank-2017-1160-prePRS-fusion.tsv.GW \
 	--gmt_file GO_STRICT_PC_10-2000_MAGMA.gmt \
