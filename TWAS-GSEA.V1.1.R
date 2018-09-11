@@ -427,7 +427,7 @@ if(length(gene_sets_clean_forMLM) != 0){
 				if(opt$covar != 'none'){
 					mod <- relmatLmer(as.formula(paste('ZSCORE ~ TWAS_GS_Mem_clean[,gene_sets_clean_forMLM[i]]', paste(opt$covar,collapse=' + '), '(1|FILE)', sep=' + ')), TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all))
 				} else {
-					mod <- relmatLmer(as.formula(paste('ZSCORE ~ TWAS_GS_Mem_clean[gene_sets_clean_forMLM[i]]', '(1|FILE)', sep=' + ')), TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all))
+					mod <- relmatLmer(as.formula(paste('ZSCORE ~ TWAS_GS_Mem_clean[,gene_sets_clean_forMLM[i]]', '(1|FILE)', sep=' + ')), TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all))
 				}
 			} else {
 				if(opt$covar != 'none'){
