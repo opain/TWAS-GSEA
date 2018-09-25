@@ -16,10 +16,12 @@ make_option("--n_cores", action="store", default=1, type='numeric',
 	help="Number of cores for permutation testing [optional]"),
 make_option("--covar", action="store", default=c('none'), type='character',
 	help="Covariates you would like to include. Specify 'none' if you don't want any. [optional]"),
+make_option("--pos", action="store", default=NA, type='character',
+	help="File containing positions of each feature [required]"),
 make_option("--weights", action="store", default=NA, type='character',
 	help="Variable used to weight observations [optional]"),
-make_option("--use_twas_id", action="store", default=F, type='logical',
-	help="Specify as T if gene property file contains TWAS IDs instead of entrez IDs [optional]"),
+make_option("--use_alt_id", action="store", default=NA, type='character',
+	help="Specify alternative column name to match IDs to gene set or property file instead of entrez IDs [optional]"),
 make_option("--cor_window", action="store", default=5e6, type='numeric',
 	help="Size of window for correlations between genes [optional]"),
 make_option("--min_Ngenes", action="store", default=5, type='numeric',
@@ -59,7 +61,7 @@ opt$outlier_threshold<- as.numeric(unlist(strsplit(opt$outlier_threshold,',')))
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
 if(is.na(opt$twas_results) == T){
-	cat('Either expression_ref or input_CorMat must be specified\n.')
+	cat('Either expression_ref or input_CorMat must be specified.\n')
 	q()
 }
 
@@ -68,27 +70,32 @@ if(is.na(opt$output) == T){
 	q()
 }
 
+if(is.na(opt$pos) == T){
+	cat('pos file for weights must be specified.\n')
+	q()
+}
+
 if(is.na(opt$output) == T){
-	cat('Either expression_ref or input_CorMat must be specified\n.')
+	cat('Either expression_ref or input_CorMat must be specified.\n')
 	q()
 }
 
 if(is.na(opt$expression_ref) == T & is.na(opt$input_CorMat) == T){
-	cat('Either expression_ref or input_CorMat must be specified for mixed models\n.')
+	cat('Either expression_ref or input_CorMat must be specified for mixed models.\n')
 }
 
 if(is.na(opt$gmt_file) == T & is.na(opt$prop_file) == T){
-	cat('Either gmt_file or prop_file must be specified\n.')
+	cat('Either gmt_file or prop_file must be specified.\n')
 	q()
 }
 
 if(is.na(opt$gmt_file) == F & is.na(opt$prop_file) == F){
-	cat('Gene set and gene property analysis must be performed separately.\n.')
+	cat('Gene set and gene property analysis must be performed separately.\n')
 	q()
 }
 
 if(opt$self_contained == F & opt$competitive == F){
-	cat('Both competitive and self_contained have been set to false\n.')
+	cat('Both competitive and self_contained have been set to false.\n')
 }
 
 sink()
@@ -116,7 +123,7 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat(
 '#################################################################
 # TWAS-based Gene Set Enrichment Analysis
-# V1.1 02/07/2018
+# V1.1 25/09/2018
 #################################################################
 
 Options are:\n')
@@ -127,10 +134,48 @@ cat('Analysis started at',as.character(start.time),'\n')
 sink()
 TWAS<-data.frame(fread(opt$twas_results))
 sink(file = paste(opt$output,'.log',sep=''), append = T)
+cat('TWAS results file contains',dim(TWAS)[1],'rows.\n')
+
+# Update FILE column to match pos file
+TWAS$tmp<-gsub(".*/", "", TWAS$FILE)
+for(i in 1:dim(TWAS)[1]){
+	TWAS$tmp2[i]<-gsub(paste0('/',TWAS$tmp[i]), "", TWAS$FILE[i])
+}
+TWAS$tmp3<-gsub(".*/", "", TWAS$tmp2)
+TWAS$FILE<-paste0(TWAS$tmp3,'/',TWAS$tmp)
+TWAS$tmp<-NULL
+TWAS$tmp2<-NULL
+TWAS$tmp3<-NULL
+
+# Read in .pos file and update P0 and P1 values (This is abug in FUSION).
+pos<-data.frame(fread(opt$pos))
+TWAS$P0<-NULL
+TWAS$P1<-NULL
+TWAS<-merge(TWAS,pos[c('WGT','P0','P1')],by.x='FILE',by.y='WGT')
+cat('Positional inforamtion is available for',dim(TWAS)[1],'TWAS features.\n')
+
+# Add a .5Mb window to the gene coordinates as this is the window for including SNPs as predictors
+TWAS$P0<-TWAS$P0-5e5
+TWAS$P0[TWAS$P0 < 0]<-0
+TWAS$P1<-TWAS$P1+5e5
+
+# Create gene length variable.
+TWAS$GeneLength<-TWAS$P1-TWAS$P0
+
+# Remove duplicate features or features with missing TWAS.P
 TWAS<-TWAS[!is.na(TWAS$TWAS.P),]
 TWAS<-TWAS[!duplicated(TWAS$FILE),]
-
 cat('TWAS contains',dim(TWAS)[1],'unique features with non-missing TWAS.P values.\n')
+
+if(!is.na(opt$use_alt_id)){
+	if(opt$use_alt_id == 'ID'){
+		# Create an alternate ID column (just for code simplicity later on)
+		TWAS$Alt_ID<-TWAS$ID
+	} else {
+		# Rename the alternate ID column 'Alt_ID'
+		names(TWAS)[grepl(opt$use_alt_id, names(TWAS))]<-'Alt_ID'
+	}
+}
 
 # Convert TWAS 'FILE' column to match the gene expression column names in expression_ref
 TWAS$FILE<-sub(".*/", "", TWAS$FILE)
@@ -139,8 +184,12 @@ TWAS$FILE<-sub(".wgt.RDat", "", TWAS$FILE)
 if(opt$allow_duplicate_ID == F){
 	# Remove features with duplicate IDs, retaining the feature with the best R2
 	TWAS<-TWAS[order(TWAS$MODELCV.R2),]
-	TWAS<-TWAS[!duplicated(TWAS$ID),]
-	cat('Duplicate IDs removed, leaving',dim(TWAS)[1],'unique features.\n')
+	if(is.na(opt$use_alt_id)){
+		TWAS<-TWAS[!duplicated(TWAS$ID),]
+	} else {
+		TWAS<-TWAS[!duplicated(TWAS$Alt_ID),]
+	}
+	cat('Duplicate IDs removed, leaving',dim(TWAS)[1],'features.\n')
 }
 
 if(opt$probit_P_as_Z == T){
@@ -154,44 +203,36 @@ if(opt$probit_P_as_Z == T){
 	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
 }
 
-# Convert the TWAS gene names into the human Entrez IDs that are in the gene sets
-ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", GRCh=37)
-Genes<-getBM(attributes=c('external_gene_name','entrezgene','start_position','end_position'), mart = ensembl)
+if(is.na(opt$use_alt_id)){
+	# Merge TWAS data with reference to retrieve entrez IDs
+	ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", GRCh=37)
+	Genes<-getBM(attributes=c('external_gene_name','entrezgene'), mart = ensembl)
 
-# Remove genes from ensembl info that have duplicate IDs
-if(opt$use_twas_id == F){
+	# Remove genes from ensembl info that have duplicate IDs
 	Genes<-Genes[!is.na(Genes$entrezgene),]
 	Genes<-Genes[!duplicated(Genes$entrezgene),]
+	Genes<-Genes[!is.na(Genes$external_gene_name),]
+	Genes<-Genes[!duplicated(Genes$external_gene_name),]
+
+	# Merge TWAS with ensembl info
+	TWAS<-merge(TWAS, Genes, by.x='ID', by.y='external_gene_name')
+	cat(dim(TWAS)[1],'features have entrez IDs.\n')
 }
-Genes<-Genes[!is.na(Genes$external_gene_name),]
-Genes<-Genes[!duplicated(Genes$external_gene_name),]
-
-# Merge TWAS with ensembl info
-TWAS_withEntrez<-merge(TWAS, Genes, by.x='ID', by.y='external_gene_name')
-
-# Add a .5Mb window to the gene coordinates as this is the window for including SNPs as predictors
-TWAS_withEntrez$start_position<-TWAS_withEntrez$start_position-5e5
-TWAS_withEntrez$start_position[TWAS_withEntrez$start_position < 0]<-0
-TWAS_withEntrez$end_position<-TWAS_withEntrez$end_position+5e5
-
-if(opt$use_twas_id == F){
-	cat(dim(TWAS_withEntrez)[1],'features have entrez IDs.\n')
-}
-
-# Create gene length variable.
-TWAS_GS<-TWAS_withEntrez
-TWAS_GS$GeneLength<-TWAS_GS$end_position-TWAS_GS$start_position
-TWAS_GS<-TWAS_GS[!is.na(TWAS_GS$entrezgene),]
 
 if(is.na(opt$gmt_file) == F){
 	# Read in gene sets of interest
 	gene_sets<-read.gmt(opt$gmt_file)
-
+	names(gene_sets)<-gsub('-','.',names(gene_sets))
+	
 	cat('Gene set file contained', length(gene_sets),'gene sets.\n')
 
 	# Create column for each gene set, indicating whether each gene is a member
-	TWAS_GS_Mem<-data.frame(TWAS_GS, foreach(i=1:length(gene_sets), .combine=cbind) %dopar% {
-		temp<-data.frame(TWAS_GS$entrezgene %in% as.character(unlist(gene_sets[i])))
+	TWAS_GS_Mem<-data.frame(TWAS, foreach(i=1:length(gene_sets), .combine=cbind) %dopar% {
+		if(is.na(opt$use_alt_id)){
+			temp<-data.frame(TWAS$entrezgene %in% as.character(unlist(gene_sets[i])))
+		} else {
+			temp<-data.frame(TWAS$Alt_ID %in% as.character(unlist(gene_sets[i])))
+		}
 		names(temp)<-names(gene_sets[i])
 		temp
 	})
@@ -215,10 +256,10 @@ if(is.na(opt$prop_file) == F){
 	cat('Gene property file contained', dim(gene_prop)[2]-1,'properties.\n')
 
 	# Merge with the TWAS data
-	if(opt$use_twas_id == F){
-		TWAS_GS_Prop<-merge(TWAS_GS, gene_prop, by.x='entrezgene', by.y='ID')
+	if(is.na(opt$use_alt_id)){
+		TWAS_GS_Prop<-merge(TWAS, gene_prop, by.x='entrezgene', by.y='ID')
 	} else {
-		TWAS_GS_Prop<-merge(TWAS_GS, gene_prop, by.x='ID', by.y='ID')
+		TWAS_GS_Prop<-merge(TWAS, gene_prop, by.x='Alt_ID', by.y='ID')
 	}
 	
 	for(i in names(gene_prop[-1])){
@@ -285,7 +326,7 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 	cat('Mixed model competitive analysis will be performed for',length(gene_sets_clean_forMLM),'gene sets/properties.\n')
 	
 	# Sort the results by location
-	TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[order(TWAS_GS_Mem_clean$CHR,TWAS_GS_Mem_clean$start_position,TWAS_GS_Mem_clean$end_position),]
+	TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[order(TWAS_GS_Mem_clean$CHR,TWAS_GS_Mem_clean$P0,TWAS_GS_Mem_clean$P1),]
 
 	if(is.na(opt$input_CorMat) == T){
 		# Read in predicted gene expression values for this set of tissue weights
@@ -318,10 +359,10 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 			if(i == 1){
 				TWAS_GS_Mem_clean$Block[i]<-1
 			} else {
-				if(i > 1 & TWAS_GS_Mem_clean$CHR[i] == TWAS_GS_Mem_clean$CHR[i-1] & TWAS_GS_Mem_clean$end_position[i] > (TWAS_GS_Mem_clean$start_position[i-1] - opt$cor_window) & TWAS_GS_Mem_clean$start_position[i] < (TWAS_GS_Mem_clean$end_position[i-1] + opt$cor_window)){
+				if(i > 1 & TWAS_GS_Mem_clean$CHR[i] == TWAS_GS_Mem_clean$CHR[i-1] & TWAS_GS_Mem_clean$P1[i] > (TWAS_GS_Mem_clean$P0[i-1] - opt$cor_window) & TWAS_GS_Mem_clean$P0[i] < (TWAS_GS_Mem_clean$P1[i-1] + opt$cor_window)){
 					TWAS_GS_Mem_clean$Block[i]<-TWAS_GS_Mem_clean$Block[i-1]
 				}
-				if(!(i > 1 & TWAS_GS_Mem_clean$CHR[i] == TWAS_GS_Mem_clean$CHR[i-1] & TWAS_GS_Mem_clean$end_position[i] > (TWAS_GS_Mem_clean$start_position[i-1] - opt$cor_window) & TWAS_GS_Mem_clean$start_position[i] < (TWAS_GS_Mem_clean$end_position[i-1] + opt$cor_window))){
+				if(!(i > 1 & TWAS_GS_Mem_clean$CHR[i] == TWAS_GS_Mem_clean$CHR[i-1] & TWAS_GS_Mem_clean$P1[i] > (TWAS_GS_Mem_clean$P0[i-1] - opt$cor_window) & TWAS_GS_Mem_clean$P0[i] < (TWAS_GS_Mem_clean$P1[i-1] + opt$cor_window))){
 					TWAS_GS_Mem_clean$Block[i]<-TWAS_GS_Mem_clean$Block[i-1]+1
 				}
 			}
@@ -359,7 +400,7 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 					# If genes are on a different chromosome or more than opt$cor_window apart then set the correlation to 0
 					sparse_struc<-Matrix(0, nrow = dim(TWAS_GS_Mem_clean_Block)[1], ncol = dim(TWAS_GS_Mem_clean_Block)[1], sparse = TRUE)
 					for(j in 1:dim(TWAS_GS_Mem_clean_Block)[1]){
-						temp<-(TWAS_GS_Mem_clean_Block$CHR == TWAS_GS_Mem_clean_Block$CHR[j] & TWAS_GS_Mem_clean_Block$end_position > (TWAS_GS_Mem_clean_Block$start_position[j] - opt$cor_window) & TWAS_GS_Mem_clean_Block$start_position < (TWAS_GS_Mem_clean_Block$end_position[j] + opt$cor_window))
+						temp<-(TWAS_GS_Mem_clean_Block$CHR == TWAS_GS_Mem_clean_Block$CHR[j] & TWAS_GS_Mem_clean_Block$P1 > (TWAS_GS_Mem_clean_Block$P0[j] - opt$cor_window) & TWAS_GS_Mem_clean_Block$P0 < (TWAS_GS_Mem_clean_Block$P1[j] + opt$cor_window))
 						sparse_struc[,j][temp]<-1
 					}
 					cor_block_2[(sparse_struc[,] != 1)@x]<-0
@@ -530,12 +571,12 @@ if(is.na(opt$gmt_file) == F){
 		Results_sig<-Results_sig[order(Results_sig$P.CORR),]
 		for(i in 1:dim(Results_sig)[1]){
 			TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-			TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','start_position','end_position','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
+			TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
 			TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
 			TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
 			TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
 			TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-			TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$start_position),]
+			TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
 			cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
 			TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
 			write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
@@ -551,12 +592,12 @@ if(is.na(opt$gmt_file) == F){
 			Results_sig<-Results_sig[order(Results_sig$P.CORR),]
 			for(i in 1:dim(Results_sig)[1]){
 				TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','start_position','end_position','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
+				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
 				TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
 				TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
 				TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
 				TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$start_position),]
+				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
 				cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
 				TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
 				write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
@@ -572,12 +613,12 @@ if(is.na(opt$gmt_file) == F){
 			Results_sig<-Results_sig[rev(order(Results_sig$Estimate)),]
 			for(i in 1:dim(Results_sig)[1]){
 				TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','start_position','end_position','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
+				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
 				TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
 				TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
 				TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
 				TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$start_position),]
+				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
 				cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (Mean = ',Results_sig$Estimate[i],', P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
 				TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
 				write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)

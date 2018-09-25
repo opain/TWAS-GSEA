@@ -30,6 +30,10 @@ install.packages(c('data.table','optparse','GWASTools','WGCNA','Matrix','VGAM','
 
 The output of [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) or a file containing the following columns FILE, P0, P1, TWAS.Z, TWAS.P.  Per chromosome files should be combined into a single file. An example is available [here](http://gitlab.psycm.cf.ac.uk/mpmop/gene-expression-risk-scoring/blob/master/ukbiobank-2017-1160-prePRS-fusion.tsv.GW). 
 
+##### --pos
+
+A file containing the start and stop coordinates of each feature. This should be the .pos file used to perform the TWAS.
+
 ##### --expression_ref
 
 A file containing feature predictions in the target sample. This is output of the FeaturePred script. The first two columns are FID and IID, then each column contains feature predictions for each individual. An example is available here. The gene expression column names must match the values in the FILE column in the --twas_results file. IFRisk ignores the substring before the last '/' and the '.wgt.RDat' string when matching. For example, the column name for the gene expression corresponding to the first value of the example TWAS results should be 'CMC.LOC643837'. The file can whitespace or comma delimited. If the file name ends .gz, the file will be assumed to gzipped.
@@ -64,11 +68,11 @@ Variable used to weight observations. The variable must be in the TWAS file.
 
 Default = NA
 
-##### --use_twas_id
+##### --use_alt_id
 
-Specify as T if gene property file contains IDs in the TWAS file ID column instead of entrez IDs.
+Specify column name in TWAS results file to be used for matching with the gmt or property file.
 
-Default = F
+Default = NA
 
 ##### --cor_window
 
