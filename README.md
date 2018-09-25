@@ -191,6 +191,7 @@ This is a log file containing general information on the time taken, any errors,
 ```sh
 Rscript TWAS-GSEA.V1.0.R \
 	--twas_results ukbiobank-2017-1160-prePRS-fusion.tsv.GW \
+	--pos CMC.BRAIN.RNASEQ.pos \
 	--gmt_file GO_STRICT_PC_10-2000_MAGMA.gmt \
 	--expression_ref CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv \
 	--output demo
