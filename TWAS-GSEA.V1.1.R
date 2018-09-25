@@ -119,6 +119,14 @@ suppressMessages(library(foreach))
 suppressMessages(library(doMC))
 registerDoMC(opt$n_cores)
 
+# Make bdiag function that retains column names
+bdiag_withNames<-function(x,y){
+	tmp<-bdiag(x,y)
+	colnames(tmp)<-c(dimnames(x)[[1]],dimnames(y)[[1]])
+	rownames(tmp)<-c(dimnames(x)[[1]],dimnames(y)[[1]])
+	return(tmp)
+}
+
 sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat(
 '#################################################################
@@ -371,14 +379,12 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 		cat('The genes could be separated into',length(unique(TWAS_GS_Mem_clean$Block)),'blocks.\n')
 		
 		# Calculate correlation matrix for each block, remove values for genes more than 5Mbs apart, and make it positive definite
-		cor_block_all<-Matrix(0, nrow = 0, ncol = 0, sparse = TRUE)
-		TWAS_GS_Mem_clean_Block_all<-NULL
 		cat('Creating correlation matrix... ')
-		for(i in unique(TWAS_GS_Mem_clean$Block)){
+		cor_block_all<-foreach(i=unique(TWAS_GS_Mem_clean$Block), .combine=bdiag_withNames) %dopar% {
 			if(sum(TWAS_GS_Mem_clean$Block == i) == 1){
-				single_value<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
-				cor_block_all<-bdiag(cor_block_all,single_value)
-				TWAS_GS_Mem_clean_Block<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean$Block == i,]
+				cor_block_2<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
+				colnames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
+				rownames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
 			} else {
 				cor_block<-abs(WGCNA::cor(as.matrix(GeneX_all[(names(GeneX_all) %in% TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i])]), method='pearson'))
 				# Remove genes with a correlation exceeding an r2 of opt$max_r2
@@ -389,11 +395,10 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 				TWAS_GS_Mem_clean_Block<-TWAS_GS_Mem_clean[which(TWAS_GS_Mem_clean$Block == i),]
 				TWAS_GS_Mem_clean_Block<-TWAS_GS_Mem_clean_Block[(TWAS_GS_Mem_clean_Block$FILE %in% keep),]
 				if(length(cor_block_2) == 1){
-					single_value<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
-					cor_block_all<-bdiag(cor_block_all,single_value)
+					cor_block_2<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
+					colnames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
+					rownames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
 				} else {
-					cor_block_2<-cor_block_2[match(TWAS_GS_Mem_clean_Block$FILE, colnames(cor_block_2)),match(TWAS_GS_Mem_clean_Block$FILE, rownames(cor_block_2))]
-				
 					if(is.positive.definite(as.matrix(cor_block)) == F){
 					cor_block_2<-nearPD(cor_block_2,corr=T)$mat
 					}
@@ -411,10 +416,8 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 						cor_block_2<-nearPD(cor_block_2,corr=T)$mat
 					}
 					cor_block_2<-Matrix(cor_block_2, sparse=T)
-					cor_block_all<-bdiag(cor_block_all,cor_block_2)
 				}
 			}
-			TWAS_GS_Mem_clean_Block_all<-rbind(TWAS_GS_Mem_clean_Block_all, TWAS_GS_Mem_clean_Block)
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*10)){cat('10% ')}
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*20)){cat('20% ')}
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*30)){cat('30% ')}
@@ -425,20 +428,21 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*80)){cat('80% ')}
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*90)){cat('90% ')}
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*100)){cat('100% ')}
+			
+			cor_block_2
 		}
-		cat('Done!\n')
 		
-		# Set dimnames
-		cor_block_all@Dimnames<-list(TWAS_GS_Mem_clean_Block_all$FILE,TWAS_GS_Mem_clean_Block_all$FILE)
+		cat('Done!\n')
 		
 		# Calculate the proportion of sparse values
 		prop_sparse<-sum(cor_block_all == 0)/(dim(cor_block_all)[1]*dim(cor_block_all)[2])
 		
 		cat('The correlation matrix of gene expression is ',prop_sparse*100,'% sparse.\n',sep='')
-		cat('After pruning',dim(TWAS_GS_Mem_clean_Block_all)[1],'features remain.\n')
+		cat('After pruning',dim(cor_block_all)[1],'features remain.\n')
 		
-		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean_Block_all
-		
+		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% colnames(cor_block_all)),]
+		cor_block_all<-cor_block_all[match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all)),match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all))]
+
 		if(opt$save_CorMat ==T){
 			saveRDS(cor_block_all,paste(opt$output,'.CorMat.RDS',sep=''))
 		}
