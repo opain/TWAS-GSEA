@@ -311,13 +311,22 @@ Linear_Results<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
 	if(i == floor(length(gene_sets_clean)/100*80)){cat('80% ')}
 	if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
 	if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
-	data.frame(	GeneSet=gene_sets_clean[i],
+	
+	if(is.na(opt$prop_file)){
+		data.frame(	GeneSet=gene_sets_clean[i],
+					Est=coef(sum)[2, 1],
+					SE=coef(sum)[2, 2],
+					T=coef(sum)[2, 3],
+					N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
+					N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
+					P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
+	} else {
+		data.frame(	GeneSet=gene_sets_clean[i],
 				Est=coef(sum)[2, 1],
 				SE=coef(sum)[2, 2],
 				T=coef(sum)[2, 3],
-				N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
-				N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
 				P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
+	}
 }
 cat('Done!\n')
 
@@ -458,6 +467,9 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 		
 		cat('Precomputed correlation matrix contains', dim(cor_block_all)[2],'features.\n')
 		
+		TWAS_GS_Mem_clean$FILE<-gsub(':','.',TWAS_GS_Mem_clean$FILE)
+		TWAS_GS_Mem_clean$FILE<-gsub('-','.',TWAS_GS_Mem_clean$FILE)
+		
 		genes_overlap<-intersect(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all))
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% genes_overlap),]
 		cor_block_all<-cor_block_all[(colnames(cor_block_all) %in% genes_overlap),(colnames(cor_block_all) %in% genes_overlap)]
@@ -513,14 +525,24 @@ if(length(gene_sets_clean_forMLM) != 0){
 			if(i == floor(length(gene_sets_clean_forMLM)/100*80)){cat('80% ')}
 			if(i == floor(length(gene_sets_clean_forMLM)/100*90)){cat('90% ')}
 			if(i == floor(length(gene_sets_clean_forMLM)/100*100)){cat('100% ')}
-			data.frame(	GeneSet=gene_sets_clean_forMLM[i],
-						Estimate=coefs$Estimate[2],
-						SE=coefs$Std..Error[2],
-						T=coefs$t.value[2],
-						N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
-						N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
-						P=(1 - pnorm(coefs$t.value[2])),
-						row.names=paste(i))
+			
+			if(is.na(opt$prop_file)){
+				data.frame(	GeneSet=gene_sets_clean_forMLM[i],
+							Estimate=coefs$Estimate[2],
+							SE=coefs$Std..Error[2],
+							T=coefs$t.value[2],
+							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
+							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
+							P=(1 - pnorm(coefs$t.value[2])),
+							row.names=paste(i))
+			} else {
+				data.frame(	GeneSet=gene_sets_clean_forMLM[i],
+							Estimate=coefs$Estimate[2],
+							SE=coefs$Std..Error[2],
+							T=coefs$t.value[2],
+							P=(1 - pnorm(coefs$t.value[2])),
+							row.names=paste(i))
+			}
 		}
 		cat('Done!\n')
 	}
@@ -545,14 +567,23 @@ if(opt$self_contained == T){
 			if(i == floor(length(gene_sets_clean)/100*80)){cat('80% ')}
 			if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
 			if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
-			data.frame(	GeneSet=gene_sets_clean[i],
-						Estimate=coefs$Estimate[1],
-						SE=coefs$Std..Error[1],
-						T=coefs$t.value[1],
-						N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
-						N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
-						P=(1 - pt(coefs$t.value[1], df.KR,lower=T)),
-						row.names=paste(i))
+			if(is.na(opt$prop_file)){
+				data.frame(	GeneSet=gene_sets_clean[i],
+							Estimate=coefs$Estimate[1],
+							SE=coefs$Std..Error[1],
+							T=coefs$t.value[1],
+							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
+							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
+							P=(1 - pt(coefs$t.value[1], df.KR,lower=T)),
+							row.names=paste(i))
+			} else {
+				data.frame(	GeneSet=gene_sets_clean[i],
+							Estimate=coefs$Estimate[1],
+							SE=coefs$Std..Error[1],
+							T=coefs$t.value[1],
+							P=(1 - pt(coefs$t.value[1], df.KR,lower=T)),
+							row.names=paste(i))
+			}
 		}
 	}
 	cat('Done!\n')
