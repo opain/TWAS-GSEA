@@ -160,7 +160,7 @@ pos<-data.frame(fread(opt$pos))
 TWAS$P0<-NULL
 TWAS$P1<-NULL
 TWAS<-merge(TWAS,pos[c('WGT','P0','P1')],by.x='FILE',by.y='WGT')
-cat('Positional inforamtion is available for',dim(TWAS)[1],'TWAS features.\n')
+cat('Positional information is available for',dim(TWAS)[1],'TWAS features.\n')
 
 # Add a .5Mb window to the gene coordinates as this is the window for including SNPs as predictors
 TWAS$P0<-TWAS$P0-5e5
@@ -315,6 +315,8 @@ Linear_Results<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
 				Est=coef(sum)[2, 1],
 				SE=coef(sum)[2, 2],
 				T=coef(sum)[2, 3],
+				N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
+				N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
 				P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
 }
 cat('Done!\n')
@@ -348,7 +350,10 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 		
 		# Extract genes available in TWAS and correlation matrix
 		TWAS_GS_Mem_clean$FILE<-gsub(':','.',TWAS_GS_Mem_clean$FILE)
+		TWAS_GS_Mem_clean$FILE<-gsub('-','.',TWAS_GS_Mem_clean$FILE)
+		
 		names(GeneX_all)<-gsub(':','.',names(GeneX_all))
+		names(GeneX_all)<-gsub('-','.',names(GeneX_all))
 		
 		genes_overlap<-intersect(TWAS_GS_Mem_clean$FILE, names(GeneX_all))
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% genes_overlap),]
@@ -396,8 +401,8 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 				TWAS_GS_Mem_clean_Block<-TWAS_GS_Mem_clean_Block[(TWAS_GS_Mem_clean_Block$FILE %in% keep),]
 				if(length(cor_block_2) == 1){
 					cor_block_2<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
-					colnames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
-					rownames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
+					colnames(cor_block_2)<-TWAS_GS_Mem_clean_Block$FILE
+					rownames(cor_block_2)<-TWAS_GS_Mem_clean_Block$FILE
 				} else {
 					if(is.positive.definite(as.matrix(cor_block)) == F){
 					cor_block_2<-nearPD(cor_block_2,corr=T)$mat
@@ -442,7 +447,7 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 		
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% colnames(cor_block_all)),]
 		cor_block_all<-cor_block_all[match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all)),match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all))]
-
+		
 		if(opt$save_CorMat ==T){
 			saveRDS(cor_block_all,paste(opt$output,'.CorMat.RDS',sep=''))
 		}
@@ -512,6 +517,8 @@ if(length(gene_sets_clean_forMLM) != 0){
 						Estimate=coefs$Estimate[2],
 						SE=coefs$Std..Error[2],
 						T=coefs$t.value[2],
+						N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
+						N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
 						P=(1 - pnorm(coefs$t.value[2])),
 						row.names=paste(i))
 		}
@@ -542,6 +549,8 @@ if(opt$self_contained == T){
 						Estimate=coefs$Estimate[1],
 						SE=coefs$Std..Error[1],
 						T=coefs$t.value[1],
+						N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
+						N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
 						P=(1 - pt(coefs$t.value[1], df.KR,lower=T)),
 						row.names=paste(i))
 		}
