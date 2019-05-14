@@ -145,15 +145,8 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('TWAS results file contains',dim(TWAS)[1],'rows.\n')
 
 # Update FILE column to match pos file
-TWAS$tmp<-gsub(".*/", "", TWAS$FILE)
-for(i in 1:dim(TWAS)[1]){
-	TWAS$tmp2[i]<-gsub(paste0('/',TWAS$tmp[i]), "", TWAS$FILE[i])
-}
-TWAS$tmp3<-gsub(".*/", "", TWAS$tmp2)
-TWAS$FILE<-paste0(TWAS$tmp3,'/',TWAS$tmp)
-TWAS$tmp<-NULL
-TWAS$tmp2<-NULL
-TWAS$tmp3<-NULL
+tmp<-data.frame(do.call(rbind, strsplit(as.character(TWAS$FILE),'/') ))
+TWAS$FILE<-do.call(paste, c(tmp[,(dim(tmp)[2]-1):dim(tmp)[2]], sep="/"))
 
 # Read in .pos file and update P0 and P1 values (This is abug in FUSION).
 pos<-data.frame(fread(opt$pos))
@@ -230,7 +223,7 @@ if(is.na(opt$use_alt_id)){
 if(is.na(opt$gmt_file) == F){
 	# Read in gene sets of interest
 	gene_sets<-read.gmt(opt$gmt_file)
-	names(gene_sets)<-gsub('-','.',names(gene_sets))
+	names(gene_sets)<-gsub("[[:punct:]]", ".", names(gene_sets))
 	
 	cat('Gene set file contained', length(gene_sets),'gene sets.\n')
 
@@ -341,7 +334,44 @@ if(is.na(opt$linear_p_thresh)){
 	cat('Using a p-value threshold of', opt$linear_p_thresh,' to select gene sets/properties for competitive mixed model analysis.\n')
 }
 
-if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
+sink()
+
+# Write out linear associations for all gene sets/properties
+Linear_Results$P.CORR<-p.adjust(Linear_Results$P, method=opt$p_cor_method)
+Linear_Results<-Linear_Results[order(Linear_Results$P),]
+write.table(Linear_Results, paste(opt$output,'.linear.txt',sep=''), col.names=T, row.names=F, quote=F)
+
+if(opt$qqplot == T){
+	# Create qqplot
+		png(paste(opt$output,'.linear.png',sep=''))
+		qqPlot(Linear_Results$P)
+		dev.off()
+}
+
+if(is.na(opt$gmt_file) == F){
+	if(sum(Linear_Results$P.CORR <= 0.05) > 0){
+		sink(file = paste(opt$output,'.linear.sig.txt',sep=''), append = F)
+		Results_sig<-Linear_Results[Linear_Results$P.CORR <= 0.05,]
+		Results_sig<-Results_sig[order(Results_sig$P.CORR),]
+		for(i in 1:dim(Results_sig)[1]){
+			TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
+			TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
+			TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
+			TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
+			TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
+			TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
+			TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
+			cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
+			TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
+			write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
+			cat('\n')
+		}
+		sink()
+	}
+}
+
+sink(file = paste(opt$output,'.log',sep=''), append = T)
+if(length(gene_sets_clean_forMLM) > 0 & (opt$competitive == T | opt$self_contained == T)){
 	cat('Mixed model competitive analysis will be performed for',length(gene_sets_clean_forMLM),'gene sets/properties.\n')
 	
 	# Sort the results by location
@@ -350,7 +380,12 @@ if(length(gene_sets_clean_forMLM) > 0 | opt$self_contained == T){
 	if(is.na(opt$input_CorMat) == T){
 		# Read in predicted gene expression values for this set of tissue weights
 		sink()
-		GeneX_all<-data.frame(fread(opt$expression_ref))
+		if(substr(opt$expression_ref,(nchar(opt$expression_ref)+1)-3,nchar(opt$expression_ref)) == '.gz'){
+			GeneX_all<-data.frame(fread(paste0('zcat ',opt$expression_ref)))
+		} else {	
+			GeneX_all<-data.frame(fread(opt$expression_ref))
+		}
+		
 		sink(file = paste(opt$output,'.log',sep=''), append = T)
 		GeneX_all<-GeneX_all[-1:-2]
 		GeneX_all<-GeneX_all[,apply(GeneX_all,2,function(x) !all(x==0))] 
@@ -592,9 +627,6 @@ if(opt$self_contained == T){
 sink()
 
 # Write out results for all gene sets/properties
-Linear_Results$P.CORR<-p.adjust(Linear_Results$P, method=opt$p_cor_method)
-write.table(Linear_Results, paste(opt$output,'.linear.txt',sep=''), col.names=T, row.names=F, quote=F)
-
 if(opt$competitive == T & length(gene_sets_clean_forMLM) != 0){
 	Results_Comp$P.CORR<-p.adjust(Results_Comp$P, method=opt$p_cor_method, n=length(Linear_Results$P))
 	write.table(Results_Comp, paste(opt$output,'.competitive.txt',sep=''), col.names=T, row.names=F, quote=F)
@@ -605,11 +637,6 @@ if(opt$self_contained == T){
 }
 
 if(opt$qqplot == T){
-	# Create qqplot
-		png(paste(opt$output,'.linear.png',sep=''))
-		qqPlot(Linear_Results$P)
-		dev.off()
-
 	if(opt$competitive == T & length(gene_sets_clean_forMLM) != 0){
 		png(paste(opt$output,'.competitive.png',sep=''))
 		qqPlot(Results_Comp$P)
@@ -623,28 +650,8 @@ if(opt$qqplot == T){
 }
 
 # Write out gene-level results for significant gene sets.
-if(is.na(opt$gmt_file) == F){
-	if(sum(Linear_Results$P.CORR <= 0.05) > 0){
-		sink(file = paste(opt$output,'.linear.sig.txt',sep=''), append = F)
-		Results_sig<-Linear_Results[Linear_Results$P.CORR <= 0.05,]
-		Results_sig<-Results_sig[order(Results_sig$P.CORR),]
-		for(i in 1:dim(Results_sig)[1]){
-			TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-			TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
-			TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
-			TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
-			TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
-			TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-			TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
-			cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
-			TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
-			write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
-			cat('\n')
-		}
-		sink()
-	}
-	
-	if(length(gene_sets_clean_forMLM) != 0){
+if(is.na(opt$gmt_file) == F){	
+	if(length(gene_sets_clean_forMLM) != 0 & opt$competitive == T){
 		if(sum(Results_Comp$P.CORR <= 0.05) > 0){
 			sink(file = paste(opt$output,'.competitive.sig.txt',sep=''), append = F)
 			Results_sig<-Results_Comp[Results_Comp$P.CORR <= 0.05,]
