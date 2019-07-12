@@ -1,6 +1,6 @@
 # TWAS-based Gene Set Enrichment Analysis (TWAS-GSEA)
 
-TWAS-GSEA is a tool for performing gene set or gene property analysis based TWAS results. It uses a similar method to MAGMA, in that it uses a mixed model to test for enrichment, specifying a gene-gene correlation matrix as a random effect to avoid bias due to non-independent observations. It uses the fantastic package lme4qtl, which the use of sparse matrices in mixed models, making this analysis computationally feasible.
+TWAS-GSEA is a tool for performing gene set or gene property analysis based TWAS results. It uses a similar method to MAGMA, in that it uses a mixed model to test for enrichment, specifying a gene-gene correlation matrix as a random effect to avoid bias due to non-independent observations. It uses the fantastic package lme4qtl, which enables the use of sparse matrices in mixed models, making this analysis computationally feasible.
 
 TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) script, though it could be used analyse any gene level association results. 
 
@@ -13,7 +13,17 @@ TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test
 * Install R and the following packages:
   
 ```R
-install.packages(c('data.table','optparse','GWASTools','WGCNA','Matrix','VGAM','biomaRt','qusage','gdata','lme4qtl','lme4','matrixcalc','pbkrtest','foreach','doMC'))
+# Install packages from the CRAN
+install.packages(c('data.table','optparse','WGCNA','Matrix','VGAM','gdata','lme4qtl','lme4','matrixcalc','pbkrtest','foreach','doMC'))
+
+# Install packages from Bioconductor
+source("https://bioconductor.org/biocLite.R")
+biocLite(c('GWASTools','biomaRt','qusage'))
+
+# Install packages from GitHub
+library(devtools)
+install_github("variani/lme4qtl")
+
 ```
 
 * Perform TWAS using FUSION:
@@ -200,10 +210,8 @@ Rscript TWAS-GSEA.V1.0.R \
 
 
 ## Help
+If you have any questions or comments use the [google group](https://groups.google.com/forum/#!forum/twas-related-r-scripts), or email oliver.pain@kcl.ac.uk.
 
-This script was written by Dr Oliver Pain under the supervision of Dr Richard Anney whilst at the MRC Centre for Neuropsychiatric Genetics and Genomics, Cardiff University.
-
-If you have any questions or comments use the [google group](https://groups.google.com/forum/#!forum/twas-related-r-scripts).
 
 
 
