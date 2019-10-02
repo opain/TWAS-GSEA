@@ -30,7 +30,7 @@ install_github("variani/lme4qtl")
   * Instructions on how to perform a TWAS are available [here](http://gusevlab.org/projects/fusion/).
 
 * Impute gene expression levels in a reference sample:
-  * Instructions on how to impute gene expression levels are [here](http://gitlab.psycm.cf.ac.uk/mpmop/Predicting-TWAS-features/tree/master).
+  * Instructions on how to impute gene expression levels are [here](https://github.com/opain/Predicting-TWAS-features).
 
 
 

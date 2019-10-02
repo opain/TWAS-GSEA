@@ -207,7 +207,7 @@ if(opt$probit_P_as_Z == T){
 if(is.na(opt$use_alt_id)){
 	# Merge TWAS data with reference to retrieve entrez IDs
 	ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", GRCh=37)
-	Genes<-getBM(attributes=c('external_gene_name','entrezgene'), mart = ensembl)
+	Genes<-getBM(attributes=c('external_gene_name','entrezgene_id'), mart = ensembl)
 
 	# Remove genes from ensembl info that have duplicate IDs
 	Genes<-Genes[!is.na(Genes$entrezgene),]
