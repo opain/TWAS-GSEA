@@ -210,8 +210,8 @@ if(is.na(opt$use_alt_id)){
 	Genes<-getBM(attributes=c('external_gene_name','entrezgene_id'), mart = ensembl)
 
 	# Remove genes from ensembl info that have duplicate IDs
-	Genes<-Genes[!is.na(Genes$entrezgene),]
-	Genes<-Genes[!duplicated(Genes$entrezgene),]
+	Genes<-Genes[!is.na(Genes$entrezgene_id),]
+	Genes<-Genes[!duplicated(Genes$entrezgene_id),]
 	Genes<-Genes[!is.na(Genes$external_gene_name),]
 	Genes<-Genes[!duplicated(Genes$external_gene_name),]
 
@@ -230,7 +230,7 @@ if(is.na(opt$gmt_file) == F){
 	# Create column for each gene set, indicating whether each gene is a member
 	TWAS_GS_Mem<-data.frame(TWAS, foreach(i=1:length(gene_sets), .combine=cbind) %dopar% {
 		if(is.na(opt$use_alt_id)){
-			temp<-data.frame(TWAS$entrezgene %in% as.character(unlist(gene_sets[i])))
+			temp<-data.frame(TWAS$entrezgene_id %in% as.character(unlist(gene_sets[i])))
 		} else {
 			temp<-data.frame(TWAS$Alt_ID %in% as.character(unlist(gene_sets[i])))
 		}
@@ -258,7 +258,7 @@ if(is.na(opt$prop_file) == F){
 
 	# Merge with the TWAS data
 	if(is.na(opt$use_alt_id)){
-		TWAS_GS_Prop<-merge(TWAS, gene_prop, by.x='entrezgene', by.y='ID')
+		TWAS_GS_Prop<-merge(TWAS, gene_prop, by.x='entrezgene_id', by.y='ID')
 	} else {
 		TWAS_GS_Prop<-merge(TWAS, gene_prop, by.x='Alt_ID', by.y='ID')
 	}
