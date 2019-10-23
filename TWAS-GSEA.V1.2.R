@@ -371,7 +371,7 @@ if(is.na(opt$gmt_file) == F){
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
-if(length(gene_sets_clean_forMLM) > 0 & (opt$competitive == T | opt$self_contained == T)){
+if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contained == T){
 	cat('Mixed model competitive analysis will be performed for',length(gene_sets_clean_forMLM),'gene sets/properties.\n')
 	
 	# Sort the results by location
@@ -381,7 +381,7 @@ if(length(gene_sets_clean_forMLM) > 0 & (opt$competitive == T | opt$self_contain
 		# Read in predicted gene expression values for this set of tissue weights
 		sink()
 		if(substr(opt$expression_ref,(nchar(opt$expression_ref)+1)-3,nchar(opt$expression_ref)) == '.gz'){
-			GeneX_all<-data.frame(fread(paste0('zcat ',opt$expression_ref)))
+			GeneX_all<-data.frame(fread(cmd=paste0('zcat ',opt$expression_ref)))
 		} else {	
 			GeneX_all<-data.frame(fread(opt$expression_ref))
 		}
@@ -629,10 +629,12 @@ sink()
 # Write out results for all gene sets/properties
 if(opt$competitive == T & length(gene_sets_clean_forMLM) != 0){
 	Results_Comp$P.CORR<-p.adjust(Results_Comp$P, method=opt$p_cor_method, n=length(Linear_Results$P))
+	Results_Comp<-Results_Comp[order(Results_Comp$P),]
 	write.table(Results_Comp, paste(opt$output,'.competitive.txt',sep=''), col.names=T, row.names=F, quote=F)
 }
 if(opt$self_contained == T){
 	Results_SelfCont$P.CORR<-p.adjust(Results_SelfCont$P, method=opt$p_cor_method, n=length(Linear_Results$P))
+	Results_SelfCont<-Results_SelfCont[order(Results_SelfCont$P),]
 	write.table(Results_SelfCont, paste(opt$output,'.self_contained.txt',sep=''), col.names=T, row.names=F, quote=F)
 }
 
