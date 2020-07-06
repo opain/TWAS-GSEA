@@ -195,7 +195,7 @@ if(opt$allow_duplicate_ID == F){
 
 if(opt$probit_P_as_Z == T){
 	# Create a normally distributed absolute TWAS.Z value using a probit transformation
-	TWAS$ZSCORE<-probit(1-TWAS$TWAS.P)
+	TWAS$ZSCORE<-probitlink(1-TWAS$TWAS.P)
 	TWAS$ZSCORE[TWAS$ZSCORE < opt$outlier_threshold[1]] <- opt$outlier_threshold[1]
 	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
 } else {
@@ -277,49 +277,53 @@ if(is.na(opt$prop_file) == F){
 #########
 # Perform standard linear regression without accounting for correlation between genes.
 #########
-
+				
 cat('Performing competitive linear model... ')
 Linear_Results<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
-	if(opt$covar != 'none'){
-		if(is.na(opt$weights)){
-			nest_mod<-speedlm.fit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i],opt$covar)])))
+	tryCatch({
+		if(opt$covar != 'none'){
+			if(is.na(opt$weights)){
+				nest_mod<-speedlm.fit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i],opt$covar)])))
+			} else {
+				nest_mod<-speedlm.wfit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i],opt$covar)])),w=abs(TWAS_GS_Mem_clean[[opt$weights]]))
+			}
 		} else {
-			nest_mod<-speedlm.wfit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i],opt$covar)])),w=abs(TWAS_GS_Mem_clean[[opt$weights]]))
+			if(is.na(opt$weights)){
+				nest_mod<-speedlm.fit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i])])))
+			} else {
+				nest_mod<-speedlm.wfit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i])])),w=abs(TWAS_GS_Mem_clean[[opt$weights]]))
+			}
 		}
-	} else {
-		if(is.na(opt$weights)){
-			nest_mod<-speedlm.fit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i])])))
+		
+		sum<-summary(nest_mod)
+		if(i == floor(length(gene_sets_clean)/100*10)){cat('10% ')}
+		if(i == floor(length(gene_sets_clean)/100*20)){cat('20% ')}
+		if(i == floor(length(gene_sets_clean)/100*30)){cat('30% ')}
+		if(i == floor(length(gene_sets_clean)/100*40)){cat('40% ')}
+		if(i == floor(length(gene_sets_clean)/100*50)){cat('50% ')}
+		if(i == floor(length(gene_sets_clean)/100*60)){cat('60% ')}
+		if(i == floor(length(gene_sets_clean)/100*70)){cat('70% ')}
+		if(i == floor(length(gene_sets_clean)/100*80)){cat('80% ')}
+		if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
+		if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
+		
+		if(is.na(opt$prop_file)){
+			data.frame(	GeneSet=gene_sets_clean[i],
+						Est=coef(sum)[2, 1],
+						SE=coef(sum)[2, 2],
+						T=coef(sum)[2, 3],
+						N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
+						N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
+						P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
 		} else {
-			nest_mod<-speedlm.wfit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i])])),w=abs(TWAS_GS_Mem_clean[[opt$weights]]))
-		}
-	}
-	sum<-summary(nest_mod)
-	if(i == floor(length(gene_sets_clean)/100*10)){cat('10% ')}
-	if(i == floor(length(gene_sets_clean)/100*20)){cat('20% ')}
-	if(i == floor(length(gene_sets_clean)/100*30)){cat('30% ')}
-	if(i == floor(length(gene_sets_clean)/100*40)){cat('40% ')}
-	if(i == floor(length(gene_sets_clean)/100*50)){cat('50% ')}
-	if(i == floor(length(gene_sets_clean)/100*60)){cat('60% ')}
-	if(i == floor(length(gene_sets_clean)/100*70)){cat('70% ')}
-	if(i == floor(length(gene_sets_clean)/100*80)){cat('80% ')}
-	if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
-	if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
-	
-	if(is.na(opt$prop_file)){
-		data.frame(	GeneSet=gene_sets_clean[i],
+			data.frame(	GeneSet=gene_sets_clean[i],
 					Est=coef(sum)[2, 1],
 					SE=coef(sum)[2, 2],
 					T=coef(sum)[2, 3],
-					N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
-					N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
 					P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
-	} else {
-		data.frame(	GeneSet=gene_sets_clean[i],
-				Est=coef(sum)[2, 1],
-				SE=coef(sum)[2, 2],
-				T=coef(sum)[2, 3],
-				P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
-	}
+		}
+	
+	}, error=function(e) NULL)
 }
 cat('Done!\n')
 
