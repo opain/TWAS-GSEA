@@ -145,8 +145,11 @@ sink(file = paste(opt$output,'.log',sep=''), append = T)
 cat('TWAS results file contains',dim(TWAS)[1],'rows.\n')
 
 # Update FILE column to match pos file
-tmp<-data.frame(do.call(rbind, strsplit(as.character(TWAS$FILE),'/') ))
+file_list<-strsplit(as.character(TWAS$FILE),'/')
+file_tab<-lapply(file_list, function(x) x[(length(x)-1):length(x)])
+tmp<-data.frame(do.call(rbind, file_tab))
 TWAS$FILE<-do.call(paste, c(tmp[,(dim(tmp)[2]-1):dim(tmp)[2]], sep="/"))
+rm(file_list,file_tab,tmp)
 
 # Read in .pos file and update P0 and P1 values (This is abug in FUSION).
 pos<-data.frame(fread(opt$pos))
@@ -570,8 +573,8 @@ if(length(gene_sets_clean_forMLM) != 0){
 							Estimate=coefs$Estimate[2],
 							SE=coefs$Std..Error[2],
 							T=coefs$t.value[2],
-							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
-							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
+							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean_forMLM[i])]==T),
+							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean_forMLM[i])]]),
 							P=(1 - pnorm(coefs$t.value[2])),
 							row.names=paste(i))
 			} else {
@@ -611,8 +614,8 @@ if(opt$self_contained == T){
 							Estimate=coefs$Estimate[1],
 							SE=coefs$Std..Error[1],
 							T=coefs$t.value[1],
-							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
-							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
+							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean_forMLM[i])]==T),
+							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean_forMLM[i])]]),
 							P=(1 - pt(coefs$t.value[1], df.KR,lower=T)),
 							row.names=paste(i))
 			} else {
