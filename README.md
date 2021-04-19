@@ -4,8 +4,6 @@ TWAS-GSEA is a tool for performing gene set or gene property analysis based TWAS
 
 TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) script, though it could be used analyse any gene level association results. 
 
-
-
 ## Getting started
 
 ### Prerequisites
@@ -55,8 +53,6 @@ A standard .gmt file which contains gene set names in the first column, a second
 ##### --prop_file (for gene property analysis)
 
 The first column should have the header 'ID' and contain gene ids. These are assumed to be entrez IDs. Each column after wards should contain values for each gene, with a header stating the gene property. 
-
-
 
 ### Optional parameters
 
@@ -199,7 +195,7 @@ This is a log file containing general information on the time taken, any errors,
 ##### When using default settings:
 
 ```sh
-Rscript TWAS-GSEA.V1.0.R \
+Rscript TWAS-GSEA.V1.2.R \
 	--twas_results ukbiobank-2017-1160-prePRS-fusion.tsv.GW \
 	--pos CMC.BRAIN.RNASEQ.pos \
 	--gmt_file GO_STRICT_PC_10-2000_MAGMA.gmt \
@@ -207,15 +203,7 @@ Rscript TWAS-GSEA.V1.0.R \
 	--output demo
 ```
 
-
-
 ## Help
 If you have any questions or comments use the [google group](https://groups.google.com/forum/#!forum/twas-related-r-scripts), or email oliver.pain@kcl.ac.uk.
-
-
-
-
-
-
 
 
