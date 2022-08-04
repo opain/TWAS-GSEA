@@ -396,7 +396,7 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		
 		sink(file = paste(opt$output,'.log',sep=''), append = T)
 		GeneX_all<-GeneX_all[-1:-2]
-		GeneX_all<-GeneX_all[,apply(GeneX_all,2,function(x) !all(x==0))] 
+		GeneX_all<-GeneX_all[,apply(GeneX_all,2,function(x) !(all(x==0) | all(is.na(x))))] 
 		
 		cat('Gene expression values contain', dim(GeneX_all)[2]-2,'non-zero variance features and',dim(GeneX_all)[1],'individuals.\n')
 		
@@ -545,47 +545,51 @@ if(length(gene_sets_clean_forMLM) != 0){
 		# Refit model with genesets as fixed effect.
 		cat('Modelling fixed effects for competitive analysis... ')
 		Results_Comp<-foreach(i=1:length(gene_sets_clean_forMLM), .combine=rbind) %dopar% {
-			if(opt$covar != 'none'){
+		  skip_to_next<-F
+		  if(opt$covar != 'none'){
 				mod_alt<-mod
 				mod_X<-mod@pp$X
 				mod_alt@pp <- merPredD(X=cbind(mod@pp$X[,1],TWAS_GS_Mem_clean[,gene_sets_clean_forMLM[i]],mod@pp$X[,2:(length(opt$covar)+1)]), Zt=mod@pp$Zt, Lambdat=mod@pp$Lambdat, Lind=mod@pp$Lind, theta=mod@pp$theta, n=nrow(mod@pp$X))
-				mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE)
+				tryCatch(mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE), error = function(e){skip_to_next <<- TRUE})
 			} else {
 				mod_alt<-mod
 				mod_X<-mod@pp$X
 				mod_alt@pp <- merPredD(X=cbind(mod@pp$X,TWAS_GS_Mem_clean[,gene_sets_clean_forMLM[i]]), Zt=mod@pp$Zt, Lambdat=mod@pp$Lambdat, Lind=mod@pp$Lind, theta=mod@pp$theta, n=nrow(mod@pp$X))
-				mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE)
+				tryCatch(mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE), error = function(e){skip_to_next <<- TRUE})
 			}
 			
-			coefs<-data.frame(coef(summary(mod2)))
-			if(i == floor(length(gene_sets_clean_forMLM)/100*10)){cat('10% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*20)){cat('20% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*30)){cat('30% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*40)){cat('40% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*50)){cat('50% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*60)){cat('60% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*70)){cat('70% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*80)){cat('80% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*90)){cat('90% ')}
-			if(i == floor(length(gene_sets_clean_forMLM)/100*100)){cat('100% ')}
-			
-			if(is.na(opt$prop_file)){
-				data.frame(	GeneSet=gene_sets_clean_forMLM[i],
-							Estimate=coefs$Estimate[2],
-							SE=coefs$Std..Error[2],
-							T=coefs$t.value[2],
-							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean_forMLM[i])]==T),
-							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean_forMLM[i])]]),
-							P=(1 - pnorm(coefs$t.value[2])),
-							row.names=paste(i))
-			} else {
-				data.frame(	GeneSet=gene_sets_clean_forMLM[i],
-							Estimate=coefs$Estimate[2],
-							SE=coefs$Std..Error[2],
-							T=coefs$t.value[2],
-							P=(1 - pnorm(coefs$t.value[2])),
-							row.names=paste(i))
-			}
+		  if(skip_to_next == F){
+		    
+  			coefs<-data.frame(coef(summary(mod2)))
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*10)){cat('10% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*20)){cat('20% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*30)){cat('30% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*40)){cat('40% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*50)){cat('50% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*60)){cat('60% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*70)){cat('70% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*80)){cat('80% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*90)){cat('90% ')}
+  			if(i == floor(length(gene_sets_clean_forMLM)/100*100)){cat('100% ')}
+  			
+  			if(is.na(opt$prop_file)){
+  				data.frame(	GeneSet=gene_sets_clean_forMLM[i],
+  							Estimate=coefs$Estimate[2],
+  							SE=coefs$Std..Error[2],
+  							T=coefs$t.value[2],
+  							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean_forMLM[i])]==T),
+  							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean_forMLM[i])]]),
+  							P=(1 - pnorm(coefs$t.value[2])),
+  							row.names=paste(i))
+  			} else {
+  				data.frame(	GeneSet=gene_sets_clean_forMLM[i],
+  							Estimate=coefs$Estimate[2],
+  							SE=coefs$Std..Error[2],
+  							T=coefs$t.value[2],
+  							P=(1 - pnorm(coefs$t.value[2])),
+  							row.names=paste(i))
+  			}
+		  }
 		}
 		cat('Done!\n')
 	}
