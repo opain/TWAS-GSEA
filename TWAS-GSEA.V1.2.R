@@ -32,6 +32,8 @@ make_option("--probit_P_as_Z", action="store", default=T, type='logical',
 	help="Specify as F if you want to used abs(TWAS.Z) as the outcome [optional]"),
 make_option("--p_cor_method", action="store", default='fdr', type='character',
 	help="Select method for correction of multiple testing. Options are the same as the method option for the p.adjust function [optional]"),
+make_option("--directional", action="store", default=F, type='logical',
+  help="Specify as T if you want to use TWAS.Z as the outcome (i.e. take into account the direction of TWAS association) [optional]"),
 make_option("--outlier_threshold", action="store", default='-3,6', type='character',
 	help="Thresholds for truncating Z scores [optional]"),
 make_option("--save_CorMat", action="store", default=F, type='logical',
@@ -82,6 +84,11 @@ if(is.na(opt$output) == T){
 
 if(is.na(opt$expression_ref) == T & is.na(opt$input_CorMat) == T){
 	cat('Either expression_ref or input_CorMat must be specified for mixed models.\n')
+}
+
+if(opt$probit_P_as_Z == T & opt$directional == T){
+  cat('Both probit_P_as_Z and directional equal TRUE. probit_P_as_Z will be set to FALSE.\n')
+  opt$probit_P_as_Z<-F
 }
 
 if(is.na(opt$gmt_file) == T & is.na(opt$prop_file) == T){
@@ -197,14 +204,22 @@ if(opt$allow_duplicate_ID == F){
 }
 
 if(opt$probit_P_as_Z == T){
-	# Create a normally distributed absolute TWAS.Z value using a probit transformation
-	TWAS$ZSCORE<-probitlink(1-TWAS$TWAS.P)
-	TWAS$ZSCORE[TWAS$ZSCORE < opt$outlier_threshold[1]] <- opt$outlier_threshold[1]
-	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
-} else {
-	# Remove the sign from TWAS.Z values
-	TWAS$ZSCORE<-abs(TWAS$TWAS.Z)
-	TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
+  # Create a normally distributed absolute TWAS.Z value using a probit transformation
+  TWAS$ZSCORE<-probitlink(1-TWAS$TWAS.P)
+  TWAS$ZSCORE[TWAS$ZSCORE < opt$outlier_threshold[1]] <- opt$outlier_threshold[1]
+  TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
+} 
+
+if(opt$directional == T){
+  # Use TWAS.Z as is
+  TWAS$ZSCORE<-TWAS$TWAS.Z
+  TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
+}
+
+if(opt$probit_P_as_Z == F & opt$directional == F){
+  # Remove the sign from TWAS.Z values
+  TWAS$ZSCORE<-abs(TWAS$TWAS.Z)
+  TWAS$ZSCORE[TWAS$ZSCORE > opt$outlier_threshold[2]] <- opt$outlier_threshold[2]
 }
 
 if(is.na(opt$use_alt_id)){
