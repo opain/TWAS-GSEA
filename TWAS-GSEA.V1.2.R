@@ -282,15 +282,22 @@ if(is.na(opt$prop_file) == F){
 		TWAS_GS_Prop<-merge(TWAS, gene_prop, by.x='Alt_ID', by.y='ID')
 	}
 	
-	for(i in names(gene_prop[-1])){
-		TWAS_GS_Prop[[i]]<-as.numeric(scale(TWAS_GS_Prop[[i]]))
+	# Retain gene properties with >= opt$min_Ngenes which have non-zero values.
+	TWAS_GS_Prop_only<-TWAS_GS_Prop[(names(TWAS_GS_Prop) %in% names(gene_prop)[-1])]
+	TWAS_GS_Prop_only_clean<-names(TWAS_GS_Prop_only)[colSums(abs(TWAS_GS_Prop_only)) >= opt$min_Ngenes]
+	TWAS_GS_Prop_clean<-cbind(TWAS_GS_Prop[!(names(TWAS_GS_Prop) %in% names(gene_prop)[-1])], TWAS_GS_Prop_only[TWAS_GS_Prop_only_clean])
+	
+	for(i in TWAS_GS_Prop_only_clean){
+	  TWAS_GS_Prop_clean[[i]]<-as.numeric(scale(TWAS_GS_Prop_clean[[i]]))
 	}
 
-	TWAS_GS_Mem_clean<-TWAS_GS_Prop
+	TWAS_GS_Mem_clean<-TWAS_GS_Prop_clean
 
 	cat(dim(TWAS_GS_Mem_clean)[1],'genes will be included in the gene property analysis.\n')
 
-	gene_sets_clean<-names(gene_prop[-1])
+	gene_sets_clean<-TWAS_GS_Prop_only_clean
+	cat(length(gene_sets_clean),'gene properties have a sufficient number of genes available with non-zero property in the TWAS.\n')
+	
 }
 
 #########
