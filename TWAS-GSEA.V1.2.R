@@ -58,6 +58,11 @@ make_option("--output", action="store", default=NA, type='character',
 
 opt = parse_args(OptionParser(option_list=option_list))
 
+# Create output directory
+if(dirname(opt$output) != '.'){
+	system(paste0('mkdir -p ',dirname(opt$output)))
+}
+
 opt$covar<- as.character(unlist(strsplit(opt$covar,',')))
 opt$outlier_threshold<- as.numeric(unlist(strsplit(opt$outlier_threshold,',')))
 
@@ -78,7 +83,7 @@ if(is.na(opt$pos) == T){
 }
 
 if(is.na(opt$output) == T){
-	cat('Either expression_ref or input_CorMat must be specified.\n')
+	cat('The output parameter must be specified.\n')
 	q()
 }
 
@@ -103,6 +108,7 @@ if(is.na(opt$gmt_file) == F & is.na(opt$prop_file) == F){
 
 if(opt$self_contained == F & opt$competitive == F){
 	cat('Both competitive and self_contained have been set to false.\n')
+	q()
 }
 
 sink()
@@ -178,7 +184,9 @@ TWAS<-TWAS[!is.na(TWAS$TWAS.P),]
 TWAS<-TWAS[!duplicated(TWAS$FILE),]
 cat('TWAS contains',dim(TWAS)[1],'unique features with non-missing TWAS.P values.\n')
 
-if(!is.na(opt$use_alt_id)){
+if(is.na(opt$use_alt_id)){
+	cat('The --use_alt_id parameter has not been specified, therefore assuming gene symbols in TWAS/.pos file and entrez ID in .gmt file.\n')
+} else {
 	if(opt$use_alt_id == 'ID'){
 		# Create an alternate ID column (just for code simplicity later on)
 		TWAS$Alt_ID<-TWAS$ID
@@ -418,7 +426,7 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		
 		sink(file = paste(opt$output,'.log',sep=''), append = T)
 		GeneX_all<-GeneX_all[-1:-2]
-		GeneX_all<-GeneX_all[,apply(GeneX_all,2,function(x) !(all(x==0) | all(is.na(x))))] 
+		GeneX_all<-GeneX_all[,apply(GeneX_all,2,function(x) !(var(x) == 0 | all(is.na(x))))] 
 		
 		cat('Gene expression values contain', dim(GeneX_all)[2]-2,'non-zero variance features and',dim(GeneX_all)[1],'individuals.\n')
 		
