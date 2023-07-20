@@ -36,11 +36,11 @@ install_github("variani/lme4qtl")
 
 ##### --twas_results
 
-The output of [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) or a file containing the following columns FILE, P0, P1, TWAS.Z, TWAS.P.  Per chromosome files should be combined into a single file. An example is available [here](http://gitlab.psycm.cf.ac.uk/mpmop/gene-expression-risk-scoring/blob/master/ukbiobank-2017-1160-prePRS-fusion.tsv.GW). 
+The output of [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) or a file containing the following columns FILE, P0, P1, TWAS.Z, TWAS.P.  Per chromosome files should be combined into a single file. An example is available [here](http://gitlab.psycm.cf.ac.uk/mpmop/gene-expression-risk-scoring/blob/master/ukbiobank-2017-1160-prePRS-fusion.tsv.GW). Gene IDs are expected to be gene symbols (this can be changed using --use_alt_id parameter).
 
 ##### --pos
 
-A file containing the start and stop coordinates of each feature. This should be the .pos file used to perform the TWAS.
+A file containing the start and stop coordinates of each feature. This should be the .pos file used to perform the TWAS. Gene IDs are expected to be gene symbols (this can be changed using --use_alt_id parameter).
 
 ##### --expression_ref
 
