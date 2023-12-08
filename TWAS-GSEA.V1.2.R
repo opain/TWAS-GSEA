@@ -208,6 +208,9 @@ TWAS$FILE<-sub(".*/", "", TWAS$FILE)
 TWAS$FILE<-sub(".wgt.RDat", "", TWAS$FILE)
 
 if(opt$allow_duplicate_ID == F){
+	if(!('MODELCV.R2' %in% names(TWAS))){
+		stop('--twas_results must contain MODELCV.R2 column when --allow_duplicate_ID F.')
+	}
 	# Remove features with duplicate IDs, retaining the feature with the best R2
 	TWAS<-TWAS[order(TWAS$MODELCV.R2),]
 	if(is.na(opt$use_alt_id)){
