@@ -184,6 +184,10 @@ TWAS<-TWAS[!is.na(TWAS$TWAS.P),]
 TWAS<-TWAS[!duplicated(TWAS$FILE),]
 cat('TWAS contains',dim(TWAS)[1],'unique features with non-missing TWAS.P values.\n')
 
+if(!(all(c('FILE','ID','P0','P1','TWAS.Z','TWAS.P') %in% names(TWAS)))){
+	stop('--twas_results must contain columns FILE, ID, P0, P1, TWAS.Z, TWAS.P.')
+}
+
 if(is.na(opt$use_alt_id)){
 	cat('The --use_alt_id parameter has not been specified, therefore assuming gene symbols in TWAS/.pos file and entrez ID in .gmt file.\n')
 } else {
@@ -191,6 +195,9 @@ if(is.na(opt$use_alt_id)){
 		# Create an alternate ID column (just for code simplicity later on)
 		TWAS$Alt_ID<-TWAS$ID
 	} else {
+		if(!(opt$use_alt_id %in% names(TWAS))){
+			stop('--twas_results must contain column specified by --use_alt_id.')
+		}
 		# Rename the alternate ID column 'Alt_ID'
 		names(TWAS)[grepl(opt$use_alt_id, names(TWAS))]<-'Alt_ID'
 	}
