@@ -8,7 +8,26 @@ TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test
 
 ### Prerequisites
 
-* Install R and the following packages:
+#### Install dependencies
+
+You can use conda/mamba to install the required software dependencies, or install them manually.
+
+##### Using conda
+
+```bash
+# Create twas_gsea environment using conda or mamba
+conda env create -f env.yaml
+
+# Activate twas_gsea environment
+conda activate twas_gsea
+
+# Open R and install lme4qtl
+R
+library(devtools)
+install_github("variani/lme4qtl")
+```
+
+##### Install manually:
   
 ```R
 # Install packages from the CRAN
@@ -24,19 +43,18 @@ install_github("variani/lme4qtl")
 
 ```
 
-* Perform TWAS using FUSION:
-  * Instructions on how to perform a TWAS are available [here](http://gusevlab.org/projects/fusion/).
+#### Perform TWAS using FUSION:
+Instructions on how to perform a TWAS are available [here](http://gusevlab.org/projects/fusion/).
 
-* Impute gene expression levels in a reference sample:
-  * Instructions on how to impute gene expression levels are [here](https://github.com/opain/Predicting-TWAS-features).
-
+#### Impute gene expression levels in a reference sample:
+Instructions on how to impute gene expression levels are [here](https://github.com/opain/Predicting-TWAS-features).
 
 
 ### Input files
 
 ##### --twas_results
 
-The output of [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) or a file containing the following columns FILE, ID, P0, P1, TWAS.Z, TWAS.P.  Per chromosome files should be combined into a single file. An example is available [here](http://gitlab.psycm.cf.ac.uk/mpmop/gene-expression-risk-scoring/blob/master/ukbiobank-2017-1160-prePRS-fusion.tsv.GW). Gene IDs are expected to be gene symbols (this can be changed using --use_alt_id parameter). If using --allow_duplicate_ID F, the --twas_results must also contain the MODELCV.R2 column from FUSION, as this is used to retain the best feature for each gene.
+The output of [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) or a file containing the following columns FILE, ID, P0, P1, TWAS.Z, TWAS.P.  Per chromosome files should be combined into a single file. An example is available [here](ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW). Gene IDs are expected to be gene symbols (this can be changed using --use_alt_id parameter). If using --allow_duplicate_ID F, the --twas_results must also contain the MODELCV.R2 column from FUSION, as this is used to retain the best feature for each gene.
 
 ##### --pos
 
@@ -48,7 +66,7 @@ A file containing feature predictions in the target sample. This is output of th
 
 ##### --gmt_file (for gene set analysis)
 
-A standard .gmt file which contains gene set names in the first column, a second column which can be ignored by the analysis, and then a series of entrez ids. This file must be tab delimited. An example can be found here.
+A standard .gmt file which contains gene set names in the first column, a second column which can be ignored by the analysis, and then a series of entrez ids. This file must be tab delimited. An example can be found [here](c2.all.v7.5.1.mini.entrez.gmt).
 
 ##### --prop_file (for gene property analysis)
 
@@ -192,14 +210,15 @@ This is a log file containing general information on the time taken, any errors,
 
 ## Example
 
-##### When using default settings:
+For demonstration purposes, we will set the --linear_p_thresh parameter to 1, so all gene sets are included in the linear mixed model analysis.
 
 ```sh
 Rscript TWAS-GSEA.V1.2.R \
-	--twas_results ukbiobank-2017-1160-prePRS-fusion.tsv.GW \
+	--twas_results ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW \
 	--pos CMC.BRAIN.RNASEQ.pos \
-	--gmt_file GO_STRICT_PC_10-2000_MAGMA.gmt \
+	--gmt_file c2.all.v7.5.1.mini.entrez.gmt \
 	--expression_ref CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv \
+	--linear_p_thresh 1 \
 	--output demo
 ```
 
