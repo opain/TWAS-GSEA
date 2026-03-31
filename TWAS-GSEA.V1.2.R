@@ -71,23 +71,18 @@ opt$covar<- as.character(unlist(strsplit(opt$covar,',')))
 opt$outlier_threshold<- as.numeric(unlist(strsplit(opt$outlier_threshold,',')))
 
 sink(file = paste(opt$output,'.log',sep=''), append = F)
-if(is.na(opt$twas_results) == T){
-	cat('Either expression_ref or input_CorMat must be specified.\n')
+if(is.na(opt$twas_results)){
+	cat('The --twas_results parameter must be specified.\n')
 	q()
 }
 
-if(is.na(opt$output) == T){
-	cat('Either expression_ref or input_CorMat must be specified\n.')
+if(is.na(opt$output)){
+	cat('The --output parameter must be specified.\n')
 	q()
 }
 
-if(is.na(opt$pos) == T){
-	cat('pos file for weights must be specified.\n')
-	q()
-}
-
-if(is.na(opt$output) == T){
-	cat('The output parameter must be specified.\n')
+if(is.na(opt$pos)){
+	cat('The --pos parameter must be specified.\n')
 	q()
 }
 
@@ -457,12 +452,16 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		names(GeneX_all)<-gsub(':','.',names(GeneX_all))
 		names(GeneX_all)<-gsub('-','.',names(GeneX_all))
 		
+		n_twas_before <- nrow(TWAS_GS_Mem_clean)
 		genes_overlap<-intersect(TWAS_GS_Mem_clean$FILE, names(GeneX_all))
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% genes_overlap),]
 		GeneX_all<-GeneX_all[(names(GeneX_all) %in% genes_overlap)]
 		GeneX_all<-GeneX_all[match(TWAS_GS_Mem_clean$FILE, names(GeneX_all))]
-		
+
 		cat(dim(TWAS_GS_Mem_clean)[1],'features are available in both TWAS and gene expression data.\n')
+		if(nrow(TWAS_GS_Mem_clean) < n_twas_before){
+			cat('WARNING:',n_twas_before - nrow(TWAS_GS_Mem_clean),'of',n_twas_before,'TWAS genes were not found in the expression reference and will be excluded from the mixed model.\n')
+		}
 		
 		##########
 		# Create block wise correlation matrix for all genes in TWAS
@@ -485,6 +484,7 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		# Previously .combine=bdiag_withNames caused a growing binary reduce (B-1 copies of
 		# an increasingly large sparse matrix); collecting first avoids that allocation pattern.
 		cor_blocks_list<-foreach(i=unique(TWAS_GS_Mem_clean$Block)) %dopar% {
+			frob_diff <- 0
 			if(sum(TWAS_GS_Mem_clean$Block == i) == 1){
 				cor_block_2<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
 				colnames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
@@ -525,7 +525,9 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 					# full eigendecomposition and forces a dense copy.
 					pd_ok <- tryCatch({ chol(as.matrix(cor_block_2)); TRUE }, error = function(e) FALSE)
 					if(!pd_ok){
-						cor_block_2<-nearPD(cor_block_2,corr=T)$mat
+						cor_block_before <- as.matrix(cor_block_2)
+						cor_block_2 <- nearPD(cor_block_2,corr=T)$mat
+						frob_diff <- norm(as.matrix(cor_block_2) - cor_block_before, "F")
 					}
 					cor_block_2<-Matrix(cor_block_2, sparse=T)
 				}
@@ -541,14 +543,20 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*90)){cat('90% ')}
 			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*100)){cat('100% ')}
 			
-			cor_block_2
+			list(mat=cor_block_2, frob_diff=frob_diff)
 		}
 		# PERF: single bdiag() call over all block matrices; rownames/colnames set once.
+		frob_diffs <- sapply(cor_blocks_list, `[[`, 'frob_diff')
+		cor_blocks_list <- lapply(cor_blocks_list, `[[`, 'mat')
 		cor_block_all <- bdiag(cor_blocks_list)
 		all_block_names <- unlist(lapply(cor_blocks_list, rownames))
 		rownames(cor_block_all) <- colnames(cor_block_all) <- all_block_names
 
 		cat('Done!\n')
+		n_repaired <- sum(frob_diffs > 0)
+		if(n_repaired > 0){
+			cat('WARNING:',n_repaired,'of',length(frob_diffs),'genomic blocks required positive-definiteness repair (nearPD). Max Frobenius norm distortion:',round(max(frob_diffs),4),'.\n')
+		}
 
 		# Calculate the proportion of sparse values
 		prop_sparse<-sum(cor_block_all == 0)/(dim(cor_block_all)[1]*dim(cor_block_all)[2])
@@ -775,13 +783,16 @@ if(length(gene_sets_clean_forMLM) != 0){
 
 if(opt$self_contained == T){
 	# Self contained analysis. NOTE: This doesn't weight genes or allow for covariates.
+	if(opt$covar[1] != 'none' | !is.na(opt$weights)){
+		cat('WARNING: Self-contained analysis does not support --covar or --weights; these options will be ignored for this analysis.\n')
+	}
 	cat('Performing self-contained mixed model... ')
 	Results_SelfCont<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
 		TWAS_GS_Mem_clean_selfCont<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[gene_sets_clean[i]]] == T,]
 		if(dim(TWAS_GS_Mem_clean_selfCont)[1] > 1){
 			mod <- relmatLmer(ZSCORE ~ (1|FILE), TWAS_GS_Mem_clean_selfCont, relmat = list(FILE = cor_block_all[(colnames(cor_block_all) %in% TWAS_GS_Mem_clean_selfCont$FILE),(colnames(cor_block_all) %in% TWAS_GS_Mem_clean_selfCont$FILE)]))
 			coefs<-data.frame(coef(summary(mod)))
-			df.KR<-get_ddf_Lb(mod, fixef(mod))
+			df.KR<-get_Lb_ddf(mod, fixef(mod))
 			if(i == floor(length(gene_sets_clean)/100*10)){cat('10% ')}
 			if(i == floor(length(gene_sets_clean)/100*20)){cat('20% ')}
 			if(i == floor(length(gene_sets_clean)/100*30)){cat('30% ')}

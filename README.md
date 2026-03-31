@@ -64,6 +64,12 @@ A file containing the start and stop coordinates of each feature. This should be
 
 A file containing feature predictions in the target sample. This is output of the FeaturePred script. The first two columns are FID and IID, then each column contains feature predictions for each individual. An example is available here. The gene expression column names must match the values in the FILE column in the --twas_results file. IFRisk ignores the substring before the last '/' and the '.wgt.RDat' string when matching. For example, the column name for the gene expression corresponding to the first value of the example TWAS results should be 'CMC.LOC643837'. The file can whitespace or comma delimited. If the file name ends .gz, the file will be assumed to gzipped.
 
+##### --gene_id_map
+
+Path to a pre-downloaded gene symbol to Entrez ID mapping file (two tab-delimited columns: external_gene_name, entrezgene_id). When provided, skips the live Ensembl BioMart query. A bundled copy for GRCh37 is available at [data/gene_id_map.tsv](data/gene_id_map.tsv). Only used when --use_alt_id is not specified.
+
+Default = NA
+
 ##### --gmt_file (for gene set analysis)
 
 A standard .gmt file which contains gene set names in the first column, a second column which can be ignored by the analysis, and then a series of entrez ids. This file must be tab delimited. An example can be found [here](c2.all.v7.5.1.mini.entrez.gmt).
@@ -122,6 +128,12 @@ Specify as F if you want to used abs(TWAS.Z) as the outcome.
 
 Default = T
 
+##### --directional
+
+Specify as T if you want to use TWAS.Z as the outcome (i.e. take into account the direction of TWAS association). When T, probit_P_as_Z is automatically set to F.
+
+Default = F
+
 ##### --p_cor_method
 
 Select method for correction of multiple testing. Options are the same as the method option for the p.adjust function.
@@ -162,6 +174,12 @@ Specify F if you do not want to perform competitive analysis.
 
 Default = T
 
+##### --fast_competitive
+
+Use fast GLS whitening for competitive mixed model analysis. This is approximately equivalent to the original merPredD+refit approach for typical TWAS sample sizes (N >> gene set size). Set to F to use the original per-gene-set variance component re-optimisation.
+
+Default = T
+
 ##### --max_r2
 
 Specify the R-squared threshold between genes for pruning.
@@ -187,6 +205,10 @@ Output file prefix for results files. This must be specified.
 Default = NULL
 
 
+
+### Statistical note: one-sided p-values
+
+All p-values reported by TWAS-GSEA (linear, competitive, and self-contained) are **one-sided**, testing for positive enrichment (i.e. whether genes in a gene set have higher ZSCORE values than background). This means the analysis is designed to detect gene sets whose members show stronger TWAS associations than expected, but will not detect gene sets with systematically *weaker* associations (depletion). If you need a two-sided test, you can convert via `p_two_sided = 2 * min(p, 1 - p)`.
 
 ### Output files
 
