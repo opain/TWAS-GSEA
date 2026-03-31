@@ -9,29 +9,10 @@ The competitive mixed-model analysis has two paths:
 | `--fast_competitive T` (default) | Fixed-V GLS whitening: builds V = σ²_u·K + σ²_e·I from null-model estimates, computes sparse Cholesky L, whitens y and all gene-set indicators simultaneously, evaluates Wald statistics in one vectorised pass |
 | `--fast_competitive F` | Original per-gene-set path: for each gene set, calls `merPredD` to add a fixed-effect column then `refit` to re-optimise variance components (σ²_u, σ²_e) under the alternative model before computing the Wald test |
 
-The fast path is an **approximation** because variance components are fixed at null estimates rather than re-optimised per gene set.
-
-## Command structure used
-
-```bash
-MODULE="module load miniforge3/24.1.2-0-gcc-13.2.0"
-CONDA="eval \"\$(conda shell.bash hook)\" && conda activate twas_gsea"
-RSCRIPT="R_LIBS_USER='' Rscript"
-
-# Run 1 — fast path (default)
-$RSCRIPT TWAS-GSEA.V1.2.R \
-  --twas_results ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW \
-  --gmt_file c2.all.v7.5.1.mini.entrez.gmt \
-  --expression_ref CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv \
-  --pos CMC.BRAIN.RNASEQ.pos \
-  --competitive T --self_contained F \
-  --linear_p_thresh 1 --fast_competitive T \
-  --output demo
-
-# Run 2 — original path
-$RSCRIPT TWAS-GSEA.V1.2.R \
-  ... --fast_competitive F --output demo_2
-```
+The fast path is an **approximation** because variance components are fixed at null
+estimates rather than re-optimised per gene set. The approximation is expected to
+be tight when N >> gene-set size; it has only been validated on the single test
+dataset described below.
 
 ## Dataset
 
@@ -40,13 +21,14 @@ $RSCRIPT TWAS-GSEA.V1.2.R \
 | TWAS features in input | 561 |
 | Features after filtering (unique, non-missing) | 539 |
 | Features matched to expression reference | 509 |
+| Expression reference individuals | 9 |
 | Genomic blocks | 3 |
 | Correlation matrix sparsity | 60.8 % |
-| Gene sets tested (competitive) | 21 |
 
-## Concordance metrics
+## Concordance (21 real gene sets)
 
-Computed on 21 gene-set T-statistics (see `compare_competitive.R` for reproducible calculation):
+Run on `c2.all.v7.5.1.mini.entrez.gmt` (21 gene sets passing `--min_Ngenes 5`).
+See `compare_competitive.R` for the reproducible calculation.
 
 | Metric | Value |
 |--------|-------|
@@ -56,37 +38,51 @@ Computed on 21 gene-set T-statistics (see `compare_competitive.R` for reproducib
 | Max \|ΔP\| | 0.0020 |
 | Sign agreement | 21 / 21 (100 %) |
 | Top gene set same? | Yes (DAVICIONI.MOLECULAR.ARMS.VS.ERMS.UP) |
-| Rank changes | 2 / 21, both between gene sets with \|ΔT\| < 0.005 (effectively tied) |
+| Rank changes | 2 / 21, both with \|ΔT\| < 0.005 (effectively tied estimates) |
 
-## Runtime (single core, n = 21 gene sets)
+## Benchmark (210 gene sets, pre-computed correlation matrix)
 
-Two independent timing observations (same fixture, single core):
+To isolate the competitive step from preprocessing noise, the correlation
+matrix was pre-computed once (`--save_CorMat T`) and both modes were run
+with `--input_CorMat` on a 210-gene-set fixture (`validation/bench.gmt`,
+the 21 real sets replicated 10× with distinct names).
 
-| Observation | fast_competitive T | fast_competitive F |
-|-------------|-------------------|--------------------|
-| Run A       | 41.2 s            | 48.1 s             |
-| Run B       | 73 s              | 62 s               |
+| Step | fast_competitive T | fast_competitive F |
+|------|-------------------|--------------------|
+| Full run (incl. preprocessing) | 63 s | 201 s |
+| Preprocessing (shared, estimated as fast-mode total) | ~63 s | ~63 s |
+| Competitive step alone (difference) | ~0 s | ~138 s |
+| Per gene set (competitive loop) | O(1) total | ~0.66 s / gene set |
+| Speedup (full run) | 1× | 0.31× (3.2× slower) |
 
-Total wall-time differences are noisy at this dataset size because both runs share
-the same preprocessing cost (~35–65 s: data load, linear model, correlation matrix
-build), and the competitive step itself is only a fraction of the total.
+The 138-second saving comes entirely from eliminating the per-gene-set REML
+re-optimisation. The fast path does one sparse Cholesky and a batched matrix
+solve regardless of the number of gene sets.
 
-The relevant quantity is time per gene set in the competitive loop:
-
-- Original path: ~0.33 s/gene set (re-optimises θ via REML per gene set)
-- Fast path: effectively O(1) for all gene sets (one sparse Cholesky + batched solve)
-
-For a typical analysis with 500 gene sets, the original path adds ~165 s of
-competitive-loop time; the fast path adds <1 s. The saving is only visible at
-that scale. On the 21-gene-set fixture the total-run noise dominates.
+For reference, the total-run comparison on the 21-gene-set fixture was noisy
+(observations: fast=41 s / orig=48 s; fast=73 s / orig=62 s) and should not
+be used to draw conclusions about speed.
 
 ## Conclusion
 
-The fast GLS whitening path (`--fast_competitive T`) produces T-statistics
-indistinguishable from the original on this dataset (max |ΔT| < 0.015, rank
-correlation = 1.000, identical sign and top-hit). The approximation is expected to
-be tight whenever the per-gene-set gain in log-likelihood from re-fitting θ is
-small — i.e., when N >> gene-set size, which holds for typical TWAS-GSEA runs.
+**Concordance**: On this dataset, the fast and original paths are indistinguishable
+in practice — Pearson r = 0.999996, max |ΔT| = 0.014, 100% sign agreement,
+identical top hit. The only rank changes (2/21) are between near-tied estimates
+(|ΔT| < 0.005).
 
-The default has been set to `--fast_competitive T`. The original path remains
-available via `--fast_competitive F` for sensitivity checks.
+**Speed**: The saving is large and scales linearly with number of gene sets:
+~138 s for 210 gene sets, ~0.66 s per gene set eliminated. For a typical analysis
+with 300–500 gene sets the competitive step would take ~3–5 minutes less.
+
+**Caveats**:
+- Validated on one real TWAS dataset (UKBiobank sleep duration, N=561 genes)
+  and one expression reference (CMC brain, N=9 individuals). Approximation
+  quality may differ for datasets with very large gene sets, higher LD structure,
+  or more variable per-set θ estimates.
+- The benchmark GMT (`validation/bench.gmt`) is synthetic (replicated sets),
+  so concordance metrics on 210 sets are not independent of those on 21.
+- No validation with covariates (`--covar`) or weights (`--weights`).
+
+**Recommendation**: `--fast_competitive T` is reasonable as the default for
+typical TWAS-GSEA usage. `--fast_competitive F` should be retained as a
+sensitivity-check option.
