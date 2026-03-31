@@ -72,47 +72,49 @@ if(dirname(opt$output) != '.'){
 opt$covar<- as.character(unlist(strsplit(opt$covar,',')))
 opt$outlier_threshold<- as.numeric(unlist(strsplit(opt$outlier_threshold,',')))
 
-sink(file = paste(opt$output,'.log',sep=''), append = F)
+# Log file path and helper
+LOG_FILE <- paste0(opt$output, '.log')
+log_msg <- function(...) cat(..., file=LOG_FILE, append=TRUE)
+cat('', file=LOG_FILE)
+
 if(is.na(opt$twas_results)){
-	cat('The --twas_results parameter must be specified.\n')
+	log_msg('The --twas_results parameter must be specified.\n')
 	q()
 }
 
 if(is.na(opt$output)){
-	cat('The --output parameter must be specified.\n')
+	log_msg('The --output parameter must be specified.\n')
 	q()
 }
 
 if(is.na(opt$pos)){
-	cat('The --pos parameter must be specified.\n')
+	log_msg('The --pos parameter must be specified.\n')
 	q()
 }
 
 if(is.na(opt$expression_ref) == T & is.na(opt$input_CorMat) == T){
-	cat('Either expression_ref or input_CorMat must be specified for mixed models.\n')
+	log_msg('Either expression_ref or input_CorMat must be specified for mixed models.\n')
 }
 
 if(opt$probit_P_as_Z == T & opt$directional == T){
-  cat('Both probit_P_as_Z and directional equal TRUE. probit_P_as_Z will be set to FALSE.\n')
+  log_msg('Both probit_P_as_Z and directional equal TRUE. probit_P_as_Z will be set to FALSE.\n')
   opt$probit_P_as_Z<-F
 }
 
 if(is.na(opt$gmt_file) == T & is.na(opt$prop_file) == T){
-	cat('Either gmt_file or prop_file must be specified.\n')
+	log_msg('Either gmt_file or prop_file must be specified.\n')
 	q()
 }
 
 if(is.na(opt$gmt_file) == F & is.na(opt$prop_file) == F){
-	cat('Gene set and gene property analysis must be performed separately.\n')
+	log_msg('Gene set and gene property analysis must be performed separately.\n')
 	q()
 }
 
 if(opt$self_contained == F & opt$competitive == F){
-	cat('Both competitive and self_contained have been set to false.\n')
+	log_msg('Both competitive and self_contained have been set to false.\n')
 	q()
 }
-
-sink()
 
 suppressMessages(library(data.table))
 suppressMessages(library(GWASTools))
@@ -136,6 +138,37 @@ registerDoMC(opt$n_cores)
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
+
+# Log progress at 10% intervals within a foreach loop.
+log_progress <- function(i, n) {
+	pct <- floor(i / n * 100)
+	if(pct %in% seq(10, 100, 10) && i == floor(n / 100 * pct)){
+		log_msg(pct, '% ', sep='')
+	}
+}
+
+# Fit a linear model with optional covariates and weights.
+fit_linear <- function(y, X_gs, covar_mat=NULL, weights=NULL) {
+	if(!is.null(covar_mat)){
+		X <- cbind(1, X_gs, covar_mat)
+	} else {
+		X <- cbind(1, X_gs)
+	}
+	if(!is.null(weights)){
+		speedlm.wfit(y=y, X=X, w=weights)
+	} else {
+		speedlm.fit(y=y, X=X)
+	}
+}
+
+# Build relmatLmer formula from covariates.
+build_lmer_formula <- function(covar) {
+	if(all(covar != 'none')){
+		as.formula(paste('ZSCORE ~', paste(covar, collapse=' + '), '+ (1|FILE)'))
+	} else {
+		as.formula('ZSCORE ~ (1|FILE)')
+	}
+}
 
 # Compute a p-value from a test statistic, respecting --two_sided.
 # Uses pnorm (normal) by default; pass df for t-distribution.
@@ -183,22 +216,19 @@ write_sig_genes <- function(Results, TWAS_GS_Mem_clean, output_path, sort_by='P.
 	sink()
 }
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat(
+log_msg(
 '#################################################################
 # TWAS-based Gene Set Enrichment Analysis
 # V1.2 26/09/2018
 #################################################################
 
 Options are:\n')
-print(opt)
-cat('Analysis started at',as.character(start.time),'\n')
+log_msg(paste(capture.output(print(opt)), collapse='\n'), '\n')
+log_msg('Analysis started at',as.character(start.time),'\n')
 
 # Read in TWAS results, removing duplicates and rows with missing TWAS.P.
-sink()
 TWAS<-data.frame(fread(opt$twas_results))
-sink(file = paste(opt$output,'.log',sep=''), append = T)
-cat('TWAS results file contains',dim(TWAS)[1],'rows.\n')
+log_msg('TWAS results file contains',dim(TWAS)[1],'rows.\n')
 
 # Update FILE column to match pos file
 file_list<-strsplit(as.character(TWAS$FILE),'/')
@@ -212,7 +242,7 @@ pos<-data.frame(fread(opt$pos))
 TWAS$P0<-NULL
 TWAS$P1<-NULL
 TWAS<-merge(TWAS,pos[c('WGT','P0','P1')],by.x='FILE',by.y='WGT')
-cat('Positional information is available for',dim(TWAS)[1],'TWAS features.\n')
+log_msg('Positional information is available for',dim(TWAS)[1],'TWAS features.\n')
 
 # Add a .5Mb window to the gene coordinates as this is the window for including SNPs as predictors
 TWAS$P0<-TWAS$P0-5e5
@@ -225,14 +255,14 @@ TWAS$GeneLength<-TWAS$P1-TWAS$P0
 # Remove duplicate features or features with missing TWAS.P
 TWAS<-TWAS[!is.na(TWAS$TWAS.P),]
 TWAS<-TWAS[!duplicated(TWAS$FILE),]
-cat('TWAS contains',dim(TWAS)[1],'unique features with non-missing TWAS.P values.\n')
+log_msg('TWAS contains',dim(TWAS)[1],'unique features with non-missing TWAS.P values.\n')
 
 if(!(all(c('FILE','ID','P0','P1','TWAS.Z','TWAS.P') %in% names(TWAS)))){
 	stop('--twas_results must contain columns FILE, ID, P0, P1, TWAS.Z, TWAS.P.')
 }
 
 if(is.na(opt$use_alt_id)){
-	cat('The --use_alt_id parameter has not been specified, therefore assuming gene symbols in TWAS/.pos file and entrez ID in .gmt file.\n')
+	log_msg('The --use_alt_id parameter has not been specified, therefore assuming gene symbols in TWAS/.pos file and entrez ID in .gmt file.\n')
 } else {
 	if(opt$use_alt_id == 'ID'){
 		# Create an alternate ID column (just for code simplicity later on)
@@ -261,7 +291,7 @@ if(opt$allow_duplicate_ID == F){
 	} else {
 		TWAS<-TWAS[!duplicated(TWAS$Alt_ID),]
 	}
-	cat('Duplicate IDs removed, leaving',dim(TWAS)[1],'features.\n')
+	log_msg('Duplicate IDs removed, leaving',dim(TWAS)[1],'features.\n')
 }
 
 if(opt$probit_P_as_Z == T){
@@ -286,10 +316,10 @@ if(opt$probit_P_as_Z == F & opt$directional == F){
 if(is.na(opt$use_alt_id)){
 	# Merge TWAS data with reference to retrieve entrez IDs
 	if(!is.na(opt$gene_id_map)){
-		cat('Reading gene symbol -> Entrez ID map from', opt$gene_id_map, '\n')
+		log_msg('Reading gene symbol -> Entrez ID map from', opt$gene_id_map, '\n')
 		Genes<-read.table(opt$gene_id_map, header=TRUE, sep='\t', stringsAsFactors=FALSE)
 	} else {
-		cat('Querying Ensembl BioMart for gene symbol -> Entrez ID map (use --gene_id_map to skip this)...\n')
+		log_msg('Querying Ensembl BioMart for gene symbol -> Entrez ID map (use --gene_id_map to skip this)...\n')
 		biomartCacheClear()
 		ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", GRCh=37)
 		Genes<-getBM(attributes=c('external_gene_name','entrezgene_id'), mart = ensembl)
@@ -303,7 +333,7 @@ if(is.na(opt$use_alt_id)){
 
 	# Merge TWAS with ensembl info
 	TWAS<-merge(TWAS, Genes, by.x='ID', by.y='external_gene_name')
-	cat(dim(TWAS)[1],'features have entrez IDs.\n')
+	log_msg(dim(TWAS)[1],'features have entrez IDs.\n')
 }
 
 if(is.na(opt$gmt_file) == F){
@@ -311,7 +341,7 @@ if(is.na(opt$gmt_file) == F){
 	gene_sets<-read.gmt(opt$gmt_file)
 	names(gene_sets)<-gsub("[[:punct:]]", ".", names(gene_sets))
 	
-	cat('Gene set file contained', length(gene_sets),'gene sets.\n')
+	log_msg('Gene set file contained', length(gene_sets),'gene sets.\n')
 
 	# Create column for each gene set, indicating whether each gene is a member
 	TWAS_GS_Mem<-data.frame(TWAS, foreach(i=1:length(gene_sets), .combine=cbind) %dopar% {
@@ -331,16 +361,14 @@ if(is.na(opt$gmt_file) == F){
 
 	gene_sets_clean<-names(gene_sets[TWAS_GS_Mem_only_clean])
 
-	cat(length(gene_sets_clean),'gene sets have a sufficient number of genes available in the TWAS.\n')
+	log_msg(length(gene_sets_clean),'gene sets have a sufficient number of genes available in the TWAS.\n')
 }
 
 if(is.na(opt$prop_file) == F){
 	# Read in gene property file
-	sink()
 	gene_prop<-data.frame(fread(opt$prop_file))
-	sink(file = paste(opt$output,'.log',sep=''), append = T)
 
-	cat('Gene property file contained', dim(gene_prop)[2]-1,'properties.\n')
+	log_msg('Gene property file contained', dim(gene_prop)[2]-1,'properties.\n')
 
 	# Merge with the TWAS data
 	if(is.na(opt$use_alt_id)){
@@ -360,45 +388,40 @@ if(is.na(opt$prop_file) == F){
 
 	TWAS_GS_Mem_clean<-TWAS_GS_Prop_clean
 
-	cat(dim(TWAS_GS_Mem_clean)[1],'genes will be included in the gene property analysis.\n')
+	log_msg(dim(TWAS_GS_Mem_clean)[1],'genes will be included in the gene property analysis.\n')
 
 	gene_sets_clean<-TWAS_GS_Prop_only_clean
-	cat(length(gene_sets_clean),'gene properties have a sufficient number of genes available with non-zero property in the TWAS.\n')
+	log_msg(length(gene_sets_clean),'gene properties have a sufficient number of genes available with non-zero property in the TWAS.\n')
 	
+}
+
+# Validate --covar and --weights columns exist in the data
+if(opt$covar[1] != 'none'){
+	missing_covars <- opt$covar[!(opt$covar %in% names(TWAS_GS_Mem_clean))]
+	if(length(missing_covars) > 0){
+		stop('--covar columns not found in TWAS data: ', paste(missing_covars, collapse=', '))
+	}
+}
+if(!is.na(opt$weights)){
+	if(!(opt$weights %in% names(TWAS_GS_Mem_clean))){
+		stop('--weights column not found in TWAS data: ', opt$weights)
+	}
 }
 
 #########
 # Perform standard linear regression without accounting for correlation between genes.
 #########
-				
-cat('Performing competitive linear model... ')
+
+log_msg('Performing competitive linear model... ')
+covar_mat <- if(opt$covar[1] != 'none') as.matrix(TWAS_GS_Mem_clean[opt$covar]) else NULL
+w_vec     <- if(!is.na(opt$weights)) abs(TWAS_GS_Mem_clean[[opt$weights]]) else NULL
 Linear_Results<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
 	tryCatch({
-		if(opt$covar != 'none'){
-			if(is.na(opt$weights)){
-				nest_mod<-speedlm.fit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i],opt$covar)])))
-			} else {
-				nest_mod<-speedlm.wfit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i],opt$covar)])),w=abs(TWAS_GS_Mem_clean[[opt$weights]]))
-			}
-		} else {
-			if(is.na(opt$weights)){
-				nest_mod<-speedlm.fit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i])])))
-			} else {
-				nest_mod<-speedlm.wfit(y=TWAS_GS_Mem_clean$ZSCORE, X=cbind(1,as.matrix(TWAS_GS_Mem_clean[c(gene_sets_clean[i])])),w=abs(TWAS_GS_Mem_clean[[opt$weights]]))
-			}
-		}
-		
+		nest_mod <- fit_linear(TWAS_GS_Mem_clean$ZSCORE,
+		                       as.matrix(TWAS_GS_Mem_clean[gene_sets_clean[i]]),
+		                       covar_mat, w_vec)
 		sum<-summary(nest_mod)
-		if(i == floor(length(gene_sets_clean)/100*10)){cat('10% ')}
-		if(i == floor(length(gene_sets_clean)/100*20)){cat('20% ')}
-		if(i == floor(length(gene_sets_clean)/100*30)){cat('30% ')}
-		if(i == floor(length(gene_sets_clean)/100*40)){cat('40% ')}
-		if(i == floor(length(gene_sets_clean)/100*50)){cat('50% ')}
-		if(i == floor(length(gene_sets_clean)/100*60)){cat('60% ')}
-		if(i == floor(length(gene_sets_clean)/100*70)){cat('70% ')}
-		if(i == floor(length(gene_sets_clean)/100*80)){cat('80% ')}
-		if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
-		if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
+		log_progress(i, length(gene_sets_clean))
 		
 		t_val <- coef(sum)[2, 3]
 		p_val <- compute_pval(t_val, opt$two_sided, df=sum$df)
@@ -418,22 +441,23 @@ Linear_Results<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
 					P=p_val)
 		}
 
-	}, error=function(e) NULL)
+	}, error=function(e) {
+		log_msg('WARNING: Linear model failed for gene set ', gene_sets_clean[i], ': ', conditionMessage(e), '\n')
+		NULL
+	})
 }
-cat('Done!\n')
+log_msg('Done!\n')
 
 # Extract gene sets/properties achieving opt$linear_p_thresh
 if(is.na(opt$linear_p_thresh)){
 	Linear_Results_temp<-Linear_Results
 	Linear_Results_temp$P.CORR<-p.adjust(Linear_Results_temp$P, method=opt$p_cor_method)
 	gene_sets_clean_forMLM<-as.character(Linear_Results_temp$GeneSet[Linear_Results_temp$P.CORR <= 0.1])
-	cat('Using a', opt$p_cor_method,'corrected p-value threshold of 0.1 to select gene sets/properties for competitive mixed model analysis.\n')
+	log_msg('Using a', opt$p_cor_method,'corrected p-value threshold of 0.1 to select gene sets/properties for competitive mixed model analysis.\n')
 } else {
 	gene_sets_clean_forMLM<-as.character(Linear_Results$GeneSet[Linear_Results$P <= opt$linear_p_thresh])
-	cat('Using a p-value threshold of', opt$linear_p_thresh,' to select gene sets/properties for competitive mixed model analysis.\n')
+	log_msg('Using a p-value threshold of', opt$linear_p_thresh,' to select gene sets/properties for competitive mixed model analysis.\n')
 }
-
-sink()
 
 # Write out linear associations for all gene sets/properties
 Linear_Results$P.CORR<-p.adjust(Linear_Results$P, method=opt$p_cor_method)
@@ -451,27 +475,24 @@ if(is.na(opt$gmt_file) == F){
 	write_sig_genes(Linear_Results, TWAS_GS_Mem_clean, paste(opt$output,'.linear.sig.txt',sep=''))
 }
 
-sink(file = paste(opt$output,'.log',sep=''), append = T)
 if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contained == T){
-	cat('Mixed model competitive analysis will be performed for',length(gene_sets_clean_forMLM),'gene sets/properties.\n')
-	
+	log_msg('Mixed model competitive analysis will be performed for',length(gene_sets_clean_forMLM),'gene sets/properties.\n')
+
 	# Sort the results by location
 	TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[order(TWAS_GS_Mem_clean$CHR,TWAS_GS_Mem_clean$P0,TWAS_GS_Mem_clean$P1),]
 
 	if(is.na(opt$input_CorMat) == T){
 		# Read in predicted gene expression values for this set of tissue weights
-		sink()
 		if(substr(opt$expression_ref,(nchar(opt$expression_ref)+1)-3,nchar(opt$expression_ref)) == '.gz'){
 			GeneX_all<-data.frame(fread(cmd=paste0('zcat ',opt$expression_ref)))
-		} else {	
+		} else {
 			GeneX_all<-data.frame(fread(opt$expression_ref))
 		}
 		
-		sink(file = paste(opt$output,'.log',sep=''), append = T)
 		GeneX_all<-GeneX_all[-1:-2]
-		GeneX_all<-GeneX_all[,apply(GeneX_all,2,function(x) !(var(x) == 0 | all(is.na(x))))] 
-		
-		cat('Gene expression values contain', dim(GeneX_all)[2]-2,'non-zero variance features and',dim(GeneX_all)[1],'individuals.\n')
+		GeneX_all<-GeneX_all[,apply(GeneX_all,2,function(x) !(var(x) == 0 | all(is.na(x))))]
+
+		log_msg('Gene expression values contain', dim(GeneX_all)[2]-2,'non-zero variance features and',dim(GeneX_all)[1],'individuals.\n')
 		
 		# Extract genes available in TWAS and correlation matrix
 		TWAS_GS_Mem_clean$FILE<-gsub(':','.',TWAS_GS_Mem_clean$FILE)
@@ -482,13 +503,16 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		
 		n_twas_before <- nrow(TWAS_GS_Mem_clean)
 		genes_overlap<-intersect(TWAS_GS_Mem_clean$FILE, names(GeneX_all))
+		if(length(genes_overlap) == 0){
+			stop('No overlapping genes between TWAS results and expression reference. Check that FILE names match (after removing path prefix and .wgt.RDat suffix).')
+		}
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% genes_overlap),]
 		GeneX_all<-GeneX_all[(names(GeneX_all) %in% genes_overlap)]
 		GeneX_all<-GeneX_all[match(TWAS_GS_Mem_clean$FILE, names(GeneX_all))]
 
-		cat(dim(TWAS_GS_Mem_clean)[1],'features are available in both TWAS and gene expression data.\n')
+		log_msg(dim(TWAS_GS_Mem_clean)[1],'features are available in both TWAS and gene expression data.\n')
 		if(nrow(TWAS_GS_Mem_clean) < n_twas_before){
-			cat('WARNING:',n_twas_before - nrow(TWAS_GS_Mem_clean),'of',n_twas_before,'TWAS genes were not found in the expression reference and will be excluded from the mixed model.\n')
+			log_msg('WARNING:',n_twas_before - nrow(TWAS_GS_Mem_clean),'of',n_twas_before,'TWAS genes were not found in the expression reference and will be excluded from the mixed model.\n')
 		}
 		
 		##########
@@ -504,10 +528,10 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		             TWAS_GS_Mem_clean$P0[-1] < (TWAS_GS_Mem_clean$P1[-n_genes] + opt$cor_window)
 		TWAS_GS_Mem_clean$Block <- cumsum(c(TRUE, !(same_chr & overlaps)))
 		
-		cat('The genes could be separated into',length(unique(TWAS_GS_Mem_clean$Block)),'blocks.\n')
+		log_msg('The genes could be separated into',length(unique(TWAS_GS_Mem_clean$Block)),'blocks.\n')
 		
 		# Calculate correlation matrix for each block, remove values for genes more than 5Mbs apart, and make it positive definite
-		cat('Creating correlation matrix... ')
+		log_msg('Creating correlation matrix... ')
 		# PERF: collect block matrices into a list, then bdiag() them in one call below.
 		# Previously .combine=bdiag_withNames caused a growing binary reduce (B-1 copies of
 		# an increasingly large sparse matrix); collecting first avoids that allocation pattern.
@@ -560,16 +584,7 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 					cor_block_2<-Matrix(cor_block_2, sparse=T)
 				}
 			}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*10)){cat('10% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*20)){cat('20% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*30)){cat('30% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*40)){cat('40% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*50)){cat('50% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*60)){cat('60% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*70)){cat('70% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*80)){cat('80% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*90)){cat('90% ')}
-			if(i == floor(length(unique(TWAS_GS_Mem_clean$Block))/100*100)){cat('100% ')}
+			log_progress(i, length(unique(TWAS_GS_Mem_clean$Block)))
 			
 			list(mat=cor_block_2, frob_diff=frob_diff)
 		}
@@ -580,17 +595,17 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		all_block_names <- unlist(lapply(cor_blocks_list, rownames))
 		rownames(cor_block_all) <- colnames(cor_block_all) <- all_block_names
 
-		cat('Done!\n')
+		log_msg('Done!\n')
 		n_repaired <- sum(frob_diffs > 0)
 		if(n_repaired > 0){
-			cat('WARNING:',n_repaired,'of',length(frob_diffs),'genomic blocks required positive-definiteness repair (nearPD). Max Frobenius norm distortion:',round(max(frob_diffs),4),'.\n')
+			log_msg('WARNING:',n_repaired,'of',length(frob_diffs),'genomic blocks required positive-definiteness repair (nearPD). Max Frobenius norm distortion:',round(max(frob_diffs),4),'.\n')
 		}
 
 		# Calculate the proportion of sparse values
 		prop_sparse<-sum(cor_block_all == 0)/(dim(cor_block_all)[1]*dim(cor_block_all)[2])
 		
-		cat('The correlation matrix of gene expression is ',prop_sparse*100,'% sparse.\n',sep='')
-		cat('After pruning',dim(cor_block_all)[1],'features remain.\n')
+		log_msg('The correlation matrix of gene expression is ',prop_sparse*100,'% sparse.\n',sep='')
+		log_msg('After pruning',dim(cor_block_all)[1],'features remain.\n')
 		
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% colnames(cor_block_all)),]
 		cor_block_all<-cor_block_all[match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all)),match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all))]
@@ -603,7 +618,7 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 	if(is.na(opt$input_CorMat) == F){
 		cor_block_all<-readRDS(opt$input_CorMat)
 		
-		cat('Precomputed correlation matrix contains', dim(cor_block_all)[2],'features.\n')
+		log_msg('Precomputed correlation matrix contains', dim(cor_block_all)[2],'features.\n')
 		
 		TWAS_GS_Mem_clean$FILE<-gsub(':','.',TWAS_GS_Mem_clean$FILE)
 		TWAS_GS_Mem_clean$FILE<-gsub('-','.',TWAS_GS_Mem_clean$FILE)
@@ -613,7 +628,7 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		cor_block_all<-cor_block_all[(colnames(cor_block_all) %in% genes_overlap),(colnames(cor_block_all) %in% genes_overlap)]
 		cor_block_all<-cor_block_all[match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all)),match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all))]
 		
-		cat(dim(TWAS_GS_Mem_clean)[1],'features are available in both TWAS and gene expression data.\n')
+		log_msg(dim(TWAS_GS_Mem_clean)[1],'features are available in both TWAS and gene expression data.\n')
 	}
 
 }
@@ -621,21 +636,14 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 if(length(gene_sets_clean_forMLM) != 0){
 	if(opt$competitive == T){
 		# Run regression without fixed effects
-		cat('Modelling random effects for competitive analysis... ')
-		if(is.na(opt$weights)){
-			if(opt$covar != 'none'){
-				mod <- relmatLmer(as.formula(paste('ZSCORE ~ ', paste(opt$covar,collapse=' + '), '(1|FILE)', sep=' + ')), TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all))
-			} else {
-				mod <- relmatLmer(as.formula(paste('ZSCORE ~ ', '(1|FILE)', sep=' + ')), TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all))
-			}
+		log_msg('Modelling random effects for competitive analysis... ')
+		lmer_form <- build_lmer_formula(opt$covar)
+		if(!is.na(opt$weights)){
+			mod <- relmatLmer(lmer_form, TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all), weights=abs(TWAS_GS_Mem_clean[[opt$weights]]))
 		} else {
-			if(opt$covar != 'none'){
-				mod <- relmatLmer(as.formula(paste('ZSCORE ~ ', paste(opt$covar,collapse=' + '), '(1|FILE)', sep=' + ')), TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all), weights=abs(TWAS_GS_Mem_clean[[opt$weights]]))
-			} else {
-				mod <- relmatLmer(as.formula(paste('ZSCORE ~ ', '(1|FILE)', sep=' + ')), TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all), weights=abs(TWAS_GS_Mem_clean[[opt$weights]]))
-			}
+			mod <- relmatLmer(lmer_form, TWAS_GS_Mem_clean, relmat = list(FILE = cor_block_all))
 		}
-		cat('Done!\n')
+		log_msg('Done!\n')
 
 		if(opt$fast_competitive == T){
 
@@ -665,12 +673,12 @@ if(length(gene_sets_clean_forMLM) != 0){
 			#   p    = 1 - pnorm(t)  [one-sided] or 2*pnorm(-|t|) [two-sided]
 			# -----------------------------------------------------------------------
 
-			cat('Modelling fixed effects for competitive analysis (fast GLS)... ')
+			log_msg('Modelling fixed effects for competitive analysis (fast GLS)... ')
 
 			# Extract variance components from null model
 			sigma_e2 <- sigma(mod)^2
 			sigma_u2 <- as.numeric(lme4::VarCorr(mod)$FILE[1,1])
-			cat(sprintf('\n  sigma_u^2=%.4f  sigma_e^2=%.4f\n', sigma_u2, sigma_e2))
+			log_msg(sprintf('\n  sigma_u^2=%.4f  sigma_e^2=%.4f\n', sigma_u2, sigma_e2))
 
 			# Build sparse V = sigma_u^2 * K + sigma_e^2 * I.
 			# V has the same sparsity pattern as cor_block_all (block-diagonal) so no
@@ -747,7 +755,7 @@ if(length(gene_sets_clean_forMLM) != 0){
 			}
 			# Drop degenerate gene sets (denom == 0 means z_gs collinear with covariates)
 			Results_Comp <- Results_Comp[is.finite(Results_Comp$T), ]
-			cat('Done!\n')
+			log_msg('Done!\n')
 
 		} else {
 
@@ -755,34 +763,31 @@ if(length(gene_sets_clean_forMLM) != 0){
 			# ORIGINAL PATH: per-gene-set merPredD + refit (re-optimises theta each time).
 			# Use --fast_competitive F to select this path.
 			# -----------------------------------------------------------------------
-			cat('Modelling fixed effects for competitive analysis (original)... ')
+			log_msg('Modelling fixed effects for competitive analysis (original)... ')
 			Results_Comp<-foreach(i=1:length(gene_sets_clean_forMLM), .combine=rbind) %dopar% {
 			  skip_to_next<-F
 			  if(opt$covar != 'none'){
 					mod_alt<-mod
 					mod_X<-mod@pp$X
 					mod_alt@pp <- merPredD(X=cbind(mod@pp$X[,1],TWAS_GS_Mem_clean[,gene_sets_clean_forMLM[i]],mod@pp$X[,2:(length(opt$covar)+1)]), Zt=mod@pp$Zt, Lambdat=mod@pp$Lambdat, Lind=mod@pp$Lind, theta=mod@pp$theta, n=nrow(mod@pp$X))
-					tryCatch(mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE), error = function(e){skip_to_next <<- TRUE})
+					tryCatch(mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE), error = function(e){
+						log_msg('WARNING: refit failed for gene set ', gene_sets_clean_forMLM[i], ': ', conditionMessage(e), '\n')
+						skip_to_next <<- TRUE
+					})
 				} else {
 					mod_alt<-mod
 					mod_X<-mod@pp$X
 					mod_alt@pp <- merPredD(X=cbind(mod@pp$X,TWAS_GS_Mem_clean[,gene_sets_clean_forMLM[i]]), Zt=mod@pp$Zt, Lambdat=mod@pp$Lambdat, Lind=mod@pp$Lind, theta=mod@pp$theta, n=nrow(mod@pp$X))
-					tryCatch(mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE), error = function(e){skip_to_next <<- TRUE})
+					tryCatch(mod2<-refit(mod_alt, TWAS_GS_Mem_clean$ZSCORE), error = function(e){
+						log_msg('WARNING: refit failed for gene set ', gene_sets_clean_forMLM[i], ': ', conditionMessage(e), '\n')
+						skip_to_next <<- TRUE
+					})
 				}
 
 			  if(skip_to_next == F){
 
 			  	coefs<-data.frame(coef(summary(mod2)))
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*10)){cat('10% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*20)){cat('20% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*30)){cat('30% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*40)){cat('40% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*50)){cat('50% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*60)){cat('60% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*70)){cat('70% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*80)){cat('80% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*90)){cat('90% ')}
-			  	if(i == floor(length(gene_sets_clean_forMLM)/100*100)){cat('100% ')}
+			  	log_progress(i, length(gene_sets_clean_forMLM))
 
 			  	t_val <- coefs$t.value[2]
 			  	p_val <- compute_pval(t_val, opt$two_sided)
@@ -805,7 +810,7 @@ if(length(gene_sets_clean_forMLM) != 0){
 			  	}
 			  }
 			}
-			cat('Done!\n')
+			log_msg('Done!\n')
 
 		} # end fast_competitive if/else
 	}
@@ -814,25 +819,16 @@ if(length(gene_sets_clean_forMLM) != 0){
 if(opt$self_contained == T){
 	# Self contained analysis. NOTE: This doesn't weight genes or allow for covariates.
 	if(opt$covar[1] != 'none' | !is.na(opt$weights)){
-		cat('WARNING: Self-contained analysis does not support --covar or --weights; these options will be ignored for this analysis.\n')
+		log_msg('WARNING: Self-contained analysis does not support --covar or --weights; these options will be ignored for this analysis.\n')
 	}
-	cat('Performing self-contained mixed model... ')
+	log_msg('Performing self-contained mixed model... ')
 	Results_SelfCont<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
 		TWAS_GS_Mem_clean_selfCont<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[gene_sets_clean[i]]] == T,]
 		if(dim(TWAS_GS_Mem_clean_selfCont)[1] > 1){
 			mod <- relmatLmer(ZSCORE ~ (1|FILE), TWAS_GS_Mem_clean_selfCont, relmat = list(FILE = cor_block_all[(colnames(cor_block_all) %in% TWAS_GS_Mem_clean_selfCont$FILE),(colnames(cor_block_all) %in% TWAS_GS_Mem_clean_selfCont$FILE)]))
 			coefs<-data.frame(coef(summary(mod)))
 			df.KR<-get_Lb_ddf(mod, fixef(mod))
-			if(i == floor(length(gene_sets_clean)/100*10)){cat('10% ')}
-			if(i == floor(length(gene_sets_clean)/100*20)){cat('20% ')}
-			if(i == floor(length(gene_sets_clean)/100*30)){cat('30% ')}
-			if(i == floor(length(gene_sets_clean)/100*40)){cat('40% ')}
-			if(i == floor(length(gene_sets_clean)/100*50)){cat('50% ')}
-			if(i == floor(length(gene_sets_clean)/100*60)){cat('60% ')}
-			if(i == floor(length(gene_sets_clean)/100*70)){cat('70% ')}
-			if(i == floor(length(gene_sets_clean)/100*80)){cat('80% ')}
-			if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
-			if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
+			log_progress(i, length(gene_sets_clean))
 			t_val <- coefs$t.value[1]
 			p_val <- compute_pval(t_val, opt$two_sided, df=df.KR)
 			if(is.na(opt$prop_file)){
@@ -854,10 +850,9 @@ if(opt$self_contained == T){
 			}
 		}
 	}
-	cat('Done!\n')
+	log_msg('Done!\n')
 }
 
-sink()
 
 # Write out results for all gene sets/properties
 if(opt$competitive == T & length(gene_sets_clean_forMLM) != 0){
@@ -898,8 +893,6 @@ if(is.na(opt$gmt_file) == F){
 end.time <- Sys.time()
 time.taken <- end.time - start.time
 
-sink(file = paste(opt$output,'.log',sep=''), append = TRUE)
-cat('Analysis finished at',as.character(end.time),'\n')
-cat('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),sep=,'\n')
-sink()
+log_msg('Analysis finished at',as.character(end.time),'\n')
+log_msg('Analysis duration was',as.character(round(time.taken,2)),attr(time.taken, 'units'),sep=,'\n')
 

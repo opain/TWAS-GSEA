@@ -247,6 +247,7 @@ Rscript TWAS-GSEA.V1.2.R \
 	--gmt_file c2.all.v7.5.1.mini.entrez.gmt \
 	--expression_ref CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv \
 	--linear_p_thresh 1 \
+	--gene_id_map data/gene_id_map.tsv \
 	--output demo
 ```
 
