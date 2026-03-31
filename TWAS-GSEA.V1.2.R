@@ -56,6 +56,8 @@ make_option("--linear_p_thresh", action="store", default=NA, type='numeric',
 	help="Linear model p-value threshold for mixed model analysis [optional]"),
 make_option("--fast_competitive", action="store", default=T, type='logical',
 	help="Use fast GLS whitening for competitive mixed model (approx. equivalent to original for N>>gs_size; set F to use original merPredD+refit) [optional]"),
+make_option("--two_sided", action="store", default=F, type='logical',
+	help="Use two-sided p-values (tests for both enrichment and depletion). Default is one-sided (enrichment only). [optional]"),
 make_option("--output", action="store", default=NA, type='character',
 	help="Output file for results [required]")
 )
@@ -131,12 +133,54 @@ suppressMessages(library(foreach))
 suppressMessages(library(doMC))
 registerDoMC(opt$n_cores)
 
-# Make bdiag function that retains column names
-bdiag_withNames<-function(x,y){
-	tmp<-bdiag(x,y)
-	colnames(tmp)<-c(dimnames(x)[[1]],dimnames(y)[[1]])
-	rownames(tmp)<-c(dimnames(x)[[1]],dimnames(y)[[1]])
-	return(tmp)
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+# Compute a p-value from a test statistic, respecting --two_sided.
+# Uses pnorm (normal) by default; pass df for t-distribution.
+compute_pval <- function(t_val, two_sided, df=NULL){
+	if(is.null(df)){
+		# Normal distribution (competitive mixed model)
+		if(two_sided) 2 * pnorm(-abs(t_val)) else 1 - pnorm(t_val)
+	} else {
+		# t-distribution (linear model, self-contained)
+		if(two_sided) 2 * pt(-abs(t_val), df) else pt(t_val, df, lower=FALSE)
+	}
+}
+
+# Write gene-level results for significant gene sets to a .sig.txt file.
+# sort_by: column to sort results by ('P.CORR' for linear/competitive, 'Estimate' for self-contained)
+# label_extra: optional extra label in header (e.g. 'Mean = ...')
+write_sig_genes <- function(Results, TWAS_GS_Mem_clean, output_path, sort_by='P.CORR', descending=FALSE){
+	if(sum(Results$P.CORR <= 0.05) == 0) return(invisible(NULL))
+	sink(file = output_path, append = F)
+	Results_sig <- Results[Results$P.CORR <= 0.05,]
+	if(descending){
+		Results_sig <- Results_sig[rev(order(Results_sig[[sort_by]])),]
+	} else {
+		Results_sig <- Results_sig[order(Results_sig[[sort_by]]),]
+	}
+	for(i in 1:nrow(Results_sig)){
+		TWAS_SigSet <- TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
+		TWAS_SigSet <- TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
+		TWAS_SigSet$MODELCV.R2 <- round(TWAS_SigSet$MODELCV.R2, 3)
+		TWAS_SigSet$TWAS.Z     <- round(TWAS_SigSet$TWAS.Z, 3)
+		TWAS_SigSet$TWAS.P     <- round(TWAS_SigSet$TWAS.P, 3)
+		TWAS_SigSet$ZSCORE     <- round(TWAS_SigSet$ZSCORE, 3)
+		TWAS_SigSet <- TWAS_SigSet[order(TWAS_SigSet$CHR, TWAS_SigSet$P0),]
+		if(sort_by == 'Estimate'){
+			cat('Set No.', i, ': ', as.character(Results_sig$GeneSet[i]),
+			    ' (Mean = ', Results_sig$Estimate[i], ', P.CORR = ', Results_sig$P.CORR[i], ')\n', sep='')
+		} else {
+			cat('Set No.', i, ': ', as.character(Results_sig$GeneSet[i]),
+			    ' (P.CORR = ', Results_sig$P.CORR[i], ')\n', sep='')
+		}
+		TWAS_SigSet_header <- rbind(names(TWAS_SigSet), TWAS_SigSet)
+		write.fwf(TWAS_SigSet_header, sep='\t', append=T, colnames=F)
+		cat('\n')
+	}
+	sink()
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -356,22 +400,24 @@ Linear_Results<-foreach(i=1:length(gene_sets_clean), .combine=rbind) %dopar% {
 		if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
 		if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
 		
+		t_val <- coef(sum)[2, 3]
+		p_val <- compute_pval(t_val, opt$two_sided, df=sum$df)
 		if(is.na(opt$prop_file)){
 			data.frame(	GeneSet=gene_sets_clean[i],
 						Est=coef(sum)[2, 1],
 						SE=coef(sum)[2, 2],
-						T=coef(sum)[2, 3],
+						T=t_val,
 						N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
 						N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
-						P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
+						P=p_val)
 		} else {
 			data.frame(	GeneSet=gene_sets_clean[i],
 					Est=coef(sum)[2, 1],
 					SE=coef(sum)[2, 2],
-					T=coef(sum)[2, 3],
-					P=pt(coef(sum)[2, 3], sum$df, lower=FALSE))
+					T=t_val,
+					P=p_val)
 		}
-	
+
 	}, error=function(e) NULL)
 }
 cat('Done!\n')
@@ -402,25 +448,7 @@ if(opt$qqplot == T){
 }
 
 if(is.na(opt$gmt_file) == F){
-	if(sum(Linear_Results$P.CORR <= 0.05) > 0){
-		sink(file = paste(opt$output,'.linear.sig.txt',sep=''), append = F)
-		Results_sig<-Linear_Results[Linear_Results$P.CORR <= 0.05,]
-		Results_sig<-Results_sig[order(Results_sig$P.CORR),]
-		for(i in 1:dim(Results_sig)[1]){
-			TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-			TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
-			TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
-			TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
-			TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
-			TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-			TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
-			cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
-			TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
-			write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
-			cat('\n')
-		}
-		sink()
-	}
+	write_sig_genes(Linear_Results, TWAS_GS_Mem_clean, paste(opt$output,'.linear.sig.txt',sep=''))
 }
 
 sink(file = paste(opt$output,'.log',sep=''), append = T)
@@ -634,7 +662,7 @@ if(length(gene_sets_clean_forMLM) != 0){
 			#   beta = (z_r' y_r) / (z_r' z_r)
 			#   SE   = 1 / sqrt(z_r' z_r)
 			#   t    = (z_r' y_r) / sqrt(z_r' z_r)
-			#   p    = 1 - pnorm(t)  [one-sided, same as original]
+			#   p    = 1 - pnorm(t)  [one-sided] or 2*pnorm(-|t|) [two-sided]
 			# -----------------------------------------------------------------------
 
 			cat('Modelling fixed effects for competitive analysis (fast GLS)... ')
@@ -691,7 +719,7 @@ if(length(gene_sets_clean_forMLM) != 0){
 			beta_hat <- numer / denom
 			SE_hat   <- 1 / sqrt(denom)
 			t_stat   <- numer / sqrt(denom)
-			p_val    <- 1 - pnorm(t_stat)                                # one-sided
+			p_val <- compute_pval(t_stat, opt$two_sided)
 
 			# Assemble output (same columns as original path)
 			if(is.na(opt$prop_file)){
@@ -756,21 +784,23 @@ if(length(gene_sets_clean_forMLM) != 0){
 			  	if(i == floor(length(gene_sets_clean_forMLM)/100*90)){cat('90% ')}
 			  	if(i == floor(length(gene_sets_clean_forMLM)/100*100)){cat('100% ')}
 
+			  	t_val <- coefs$t.value[2]
+			  	p_val <- compute_pval(t_val, opt$two_sided)
 			  	if(is.na(opt$prop_file)){
 			  		data.frame(	GeneSet=gene_sets_clean_forMLM[i],
 			  					Estimate=coefs$Estimate[2],
 			  					SE=coefs$Std..Error[2],
-			  					T=coefs$t.value[2],
+			  					T=t_val,
 			  					N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean_forMLM[i])]==T),
 			  					N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean_forMLM[i])]]),
-			  					P=(1 - pnorm(coefs$t.value[2])),
+			  					P=p_val,
 			  					row.names=paste(i))
 			  	} else {
 			  		data.frame(	GeneSet=gene_sets_clean_forMLM[i],
 			  					Estimate=coefs$Estimate[2],
 			  					SE=coefs$Std..Error[2],
-			  					T=coefs$t.value[2],
-			  					P=(1 - pnorm(coefs$t.value[2])),
+			  					T=t_val,
+			  					P=p_val,
 			  					row.names=paste(i))
 			  	}
 			  }
@@ -803,21 +833,23 @@ if(opt$self_contained == T){
 			if(i == floor(length(gene_sets_clean)/100*80)){cat('80% ')}
 			if(i == floor(length(gene_sets_clean)/100*90)){cat('90% ')}
 			if(i == floor(length(gene_sets_clean)/100*100)){cat('100% ')}
+			t_val <- coefs$t.value[1]
+			p_val <- compute_pval(t_val, opt$two_sided, df=df.KR)
 			if(is.na(opt$prop_file)){
 				data.frame(	GeneSet=gene_sets_clean[i],
 							Estimate=coefs$Estimate[1],
 							SE=coefs$Std..Error[1],
-							T=coefs$t.value[1],
+							T=t_val,
 							N_Mem_Avail=sum(TWAS_GS_Mem_clean[c(gene_sets_clean[i])]==T),
 							N_Mem=length(gene_sets[[which(names(gene_sets) == gene_sets_clean[i])]]),
-							P=(1 - pt(coefs$t.value[1], df.KR,lower=T)),
+							P=p_val,
 							row.names=paste(i))
 			} else {
 				data.frame(	GeneSet=gene_sets_clean[i],
 							Estimate=coefs$Estimate[1],
 							SE=coefs$Std..Error[1],
-							T=coefs$t.value[1],
-							P=(1 - pt(coefs$t.value[1], df.KR,lower=T)),
+							T=t_val,
+							P=p_val,
 							row.names=paste(i))
 			}
 		}
@@ -853,48 +885,13 @@ if(opt$qqplot == T){
 }
 
 # Write out gene-level results for significant gene sets.
-if(is.na(opt$gmt_file) == F){	
+if(is.na(opt$gmt_file) == F){
 	if(length(gene_sets_clean_forMLM) != 0 & opt$competitive == T){
-		if(sum(Results_Comp$P.CORR <= 0.05) > 0){
-			sink(file = paste(opt$output,'.competitive.sig.txt',sep=''), append = F)
-			Results_sig<-Results_Comp[Results_Comp$P.CORR <= 0.05,]
-			Results_sig<-Results_sig[order(Results_sig$P.CORR),]
-			for(i in 1:dim(Results_sig)[1]){
-				TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
-				TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
-				TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
-				TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
-				TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
-				cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
-				TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
-				write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
-				cat('\n')
-			}
-			sink()
-		}
+		write_sig_genes(Results_Comp, TWAS_GS_Mem_clean, paste(opt$output,'.competitive.sig.txt',sep=''))
 	}
 	if(opt$self_contained == T){
-		if(sum(Results_SelfCont$P.CORR <= 0.05) > 0){
-			sink(file = paste(opt$output,'.self_contained.sig.txt',sep=''), append = F)
-			Results_sig<-Results_SelfCont[Results_SelfCont$P.CORR <= 0.05,]
-			Results_sig<-Results_sig[rev(order(Results_sig$Estimate)),]
-			for(i in 1:dim(Results_sig)[1]){
-				TWAS_SigSet<-TWAS_GS_Mem_clean[TWAS_GS_Mem_clean[[as.character(Results_sig$GeneSet[i])]],]
-				TWAS_SigSet<-TWAS_SigSet[c('FILE','ID','CHR','P0','P1','NSNP','NWGT','MODELCV.R2','TWAS.Z','TWAS.P','ZSCORE')]
-				TWAS_SigSet$MODELCV.R2<-round(TWAS_SigSet$MODELCV.R2,3)
-				TWAS_SigSet$TWAS.Z<-round(TWAS_SigSet$TWAS.Z,3)
-				TWAS_SigSet$TWAS.P<-round(TWAS_SigSet$TWAS.P,3)
-				TWAS_SigSet$ZSCORE<-round(TWAS_SigSet$ZSCORE,3)
-				TWAS_SigSet<-TWAS_SigSet[order(TWAS_SigSet$CHR,TWAS_SigSet$P0),]
-				cat('Set No.',i,': ',as.character(Results_sig$GeneSet[i]),' (Mean = ',Results_sig$Estimate[i],', P.CORR = ',Results_sig$P.CORR[i],')\n',sep='')
-				TWAS_SigSet_header <- rbind(names(TWAS_SigSet) , TWAS_SigSet )
-				write.fwf(TWAS_SigSet_header,sep='\t',append=T, colnames=F)
-				cat('\n')
-			}
-			sink()
-		}
+		write_sig_genes(Results_SelfCont, TWAS_GS_Mem_clean, paste(opt$output,'.self_contained.sig.txt',sep=''),
+		                sort_by='Estimate', descending=TRUE)
 	}
 }
 

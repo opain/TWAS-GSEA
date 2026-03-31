@@ -180,6 +180,12 @@ Use fast GLS whitening for competitive mixed model analysis. This is approximate
 
 Default = T
 
+##### --two_sided
+
+Use two-sided p-values, testing for both enrichment and depletion. By default, all p-values are one-sided (enrichment only). See the statistical note below for details.
+
+Default = F
+
 ##### --max_r2
 
 Specify the R-squared threshold between genes for pruning.

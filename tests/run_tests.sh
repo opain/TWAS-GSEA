@@ -85,12 +85,32 @@ TEST_OUTPUTS[directional]="linear"
 TEST_ARGS[abs_z]='--gmt_file "$GMT_FILE" --competitive T --self_contained F --probit_P_as_Z F --directional F'
 TEST_OUTPUTS[abs_z]="linear"
 
-# Test 7: Pre-computed correlation matrix
+# Test 7: Two-sided p-values (competitive fast)
+TEST_ARGS[two_sided]='--gmt_file "$GMT_FILE" --expression_ref "$EXPR_REF" --competitive T --self_contained F --fast_competitive T --linear_p_thresh 1 --two_sided T'
+TEST_OUTPUTS[two_sided]="linear competitive"
+
+# Test 8: Covariate (competitive fast)
+TEST_ARGS[covar_fast]='--gmt_file "$GMT_FILE" --expression_ref "$EXPR_REF" --competitive T --self_contained F --fast_competitive T --linear_p_thresh 1 --covar NSNP'
+TEST_OUTPUTS[covar_fast]="linear competitive"
+
+# Test 9: Weights (competitive fast)
+TEST_ARGS[weights_fast]='--gmt_file "$GMT_FILE" --expression_ref "$EXPR_REF" --competitive T --self_contained F --fast_competitive T --linear_p_thresh 1 --weights MODELCV.R2'
+TEST_OUTPUTS[weights_fast]="linear competitive"
+
+# Test 10: Covariate + Weights (competitive fast)
+TEST_ARGS[covar_weights_fast]='--gmt_file "$GMT_FILE" --expression_ref "$EXPR_REF" --competitive T --self_contained F --fast_competitive T --linear_p_thresh 1 --covar NSNP --weights MODELCV.R2'
+TEST_OUTPUTS[covar_weights_fast]="linear competitive"
+
+# Test 11: Covariate + Weights (competitive orig, for cross-check)
+TEST_ARGS[covar_weights_orig]='--gmt_file "$GMT_FILE" --expression_ref "$EXPR_REF" --competitive T --self_contained F --fast_competitive F --linear_p_thresh 1 --covar NSNP --weights MODELCV.R2'
+TEST_OUTPUTS[covar_weights_orig]="linear competitive"
+
+# Test 12: Pre-computed correlation matrix
 TEST_ARGS[precomp_cormat]='--gmt_file "$GMT_FILE" --input_CorMat "$OUTDIR/competitive_fast.CorMat.RDS" --competitive T --self_contained F --fast_competitive T --linear_p_thresh 1'
 TEST_OUTPUTS[precomp_cormat]="linear competitive"
 
 # ---- Ordered test list (test 7 depends on test 2's CorMat) -------------------
-TESTS_PHASE1=(linear_only competitive_fast competitive_orig self_contained directional abs_z)
+TESTS_PHASE1=(linear_only competitive_fast competitive_orig self_contained directional abs_z two_sided covar_fast weights_fast covar_weights_fast covar_weights_orig)
 TESTS_PHASE2=(precomp_cormat)
 
 # ---- Run a single test -------------------------------------------------------
@@ -194,20 +214,23 @@ for name in "${TESTS_PHASE2[@]}"; do
 done
 
 # ---- Cross-check: fast vs original competitive should agree ------------------
-echo "--- Cross-check: fast vs original competitive concordance ---"
-if [[ -f "$OUTDIR/competitive_fast.competitive.txt" && -f "$OUTDIR/competitive_orig.competitive.txt" ]]; then
-  echo "  Comparing competitive_fast vs competitive_orig (tolerance 0.1):"
-  if $RSCRIPT "$COMPARE" \
-      "$OUTDIR/competitive_fast.competitive.txt" \
-      "$OUTDIR/competitive_orig.competitive.txt" \
-      0.1 2>/dev/null; then
-    echo "  Fast/original concordance: PASS"
+echo "--- Cross-checks: fast vs original competitive concordance ---"
+for pair in "competitive_fast:competitive_orig" "covar_weights_fast:covar_weights_orig"; do
+  fast_name="${pair%%:*}"
+  orig_name="${pair##*:}"
+  fast_file="$OUTDIR/${fast_name}.competitive.txt"
+  orig_file="$OUTDIR/${orig_name}.competitive.txt"
+  if [[ -f "$fast_file" && -f "$orig_file" ]]; then
+    echo "  ${fast_name} vs ${orig_name} (tolerance 0.1):"
+    if $RSCRIPT "$COMPARE" "$fast_file" "$orig_file" 0.1 2>/dev/null; then
+      echo "  Concordance: PASS"
+    else
+      echo "  Concordance: FAIL"
+    fi
   else
-    echo "  Fast/original concordance: FAIL"
+    echo "  SKIP: ${fast_name} or ${orig_name} competitive output missing"
   fi
-else
-  echo "  SKIP: one or both competitive outputs missing"
-fi
+done
 echo ""
 
 # ---- Summary -----------------------------------------------------------------
