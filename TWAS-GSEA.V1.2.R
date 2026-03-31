@@ -22,6 +22,8 @@ make_option("--weights", action="store", default=NA, type='character',
 	help="Variable used to weight observations [optional]"),
 make_option("--use_alt_id", action="store", default=NA, type='character',
 	help="Specify alternative column name to match IDs to gene set or property file instead of entrez IDs [optional]"),
+make_option("--gene_id_map", action="store", default=NA, type='character',
+	help="Path to pre-downloaded gene symbol -> Entrez ID mapping file (two columns: external_gene_name, entrezgene_id). When provided, skips the live BioMart query. See data/gene_id_map.tsv for a bundled copy (Ensembl GRCh37). [optional]"),
 make_option("--cor_window", action="store", default=5e6, type='numeric',
 	help="Size of window for correlations between genes [optional]"),
 make_option("--min_Ngenes", action="store", default=5, type='numeric',
@@ -244,9 +246,15 @@ if(opt$probit_P_as_Z == F & opt$directional == F){
 
 if(is.na(opt$use_alt_id)){
 	# Merge TWAS data with reference to retrieve entrez IDs
-  biomartCacheClear()
-	ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", GRCh=37)
-	Genes<-getBM(attributes=c('external_gene_name','entrezgene_id'), mart = ensembl)
+	if(!is.na(opt$gene_id_map)){
+		cat('Reading gene symbol -> Entrez ID map from', opt$gene_id_map, '\n')
+		Genes<-read.table(opt$gene_id_map, header=TRUE, sep='\t', stringsAsFactors=FALSE)
+	} else {
+		cat('Querying Ensembl BioMart for gene symbol -> Entrez ID map (use --gene_id_map to skip this)...\n')
+		biomartCacheClear()
+		ensembl = useEnsembl(biomart="ensembl", dataset="hsapiens_gene_ensembl", GRCh=37)
+		Genes<-getBM(attributes=c('external_gene_name','entrezgene_id'), mart = ensembl)
+	}
 
 	# Remove genes from ensembl info that have duplicate IDs
 	Genes<-Genes[!is.na(Genes$entrezgene_id),]
