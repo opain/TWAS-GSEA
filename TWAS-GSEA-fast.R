@@ -220,6 +220,11 @@ if(!is.na(opt$gmt_file)){
 	prop_cols <- names(gene_prop)[-1]
 	prop_cols <- prop_cols[prop_cols %in% names(TWAS_GS)]
 	keep_gs <- prop_cols[colSums(abs(TWAS_GS[, prop_cols, drop = FALSE])) >= opt$min_Ngenes]
+	# Keep an unscaled copy of the kept property columns so per-set non-zero
+	# counts can be reported after gene-overlap subsetting (scale() below would
+	# turn every entry non-zero).
+	prop_unscaled <- as.matrix(TWAS_GS[, keep_gs, drop = FALSE])
+	rownames(prop_unscaled) <- TWAS_GS$FILE
 	for(i in keep_gs) TWAS_GS[[i]] <- as.numeric(scale(TWAS_GS[[i]]))
 	gene_sets_clean <- keep_gs
 	using_prop <- TRUE
@@ -342,12 +347,14 @@ log_msg('Done.\n')
 # 7. Assemble + write results (column layout matches TWAS-GSEA.V1.2.R).
 # ---------------------------------------------------------------------------
 if(using_prop){
+	N_Mem_Avail <- colSums(prop_unscaled[TWAS_GS$FILE, gene_sets_clean, drop = FALSE] != 0)
 	Results <- data.frame(
-		GeneSet  = gene_sets_clean,
-		Estimate = beta_hat,
-		SE       = SE_hat,
-		T        = t_stat,
-		P        = p_val,
+		GeneSet     = gene_sets_clean,
+		Estimate    = beta_hat,
+		SE          = SE_hat,
+		T           = t_stat,
+		N_Mem_Avail = N_Mem_Avail,
+		P           = p_val,
 		stringsAsFactors = FALSE)
 } else {
 	N_Mem_Avail <- colSums(TWAS_GS[, gene_sets_clean, drop = FALSE] != 0)
