@@ -135,6 +135,9 @@ suppressMessages(library(foreach))
 suppressMessages(library(doMC))
 registerDoMC(opt$n_cores)
 
+# Sourced helpers (kept alongside the script).
+source(file.path(dirname(sub('--file=', '', grep('--file=', commandArgs(trailingOnly=FALSE), value=TRUE)[1])), 'R', 'build_cor_matrix_helper.R'))
+
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
@@ -518,95 +521,16 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 		##########
 		# Create block wise correlation matrix for all genes in TWAS
 		##########
-		
-		# Determine gene blocks.
-		# PERF: replaced sequential for-loop with vectorised cumsum; same logic,
-		# no R-level iteration over genes.
-		n_genes <- nrow(TWAS_GS_Mem_clean)
-		same_chr <- TWAS_GS_Mem_clean$CHR[-1] == TWAS_GS_Mem_clean$CHR[-n_genes]
-		overlaps  <- TWAS_GS_Mem_clean$P1[-1] > (TWAS_GS_Mem_clean$P0[-n_genes] - opt$cor_window) &
-		             TWAS_GS_Mem_clean$P0[-1] < (TWAS_GS_Mem_clean$P1[-n_genes] + opt$cor_window)
-		TWAS_GS_Mem_clean$Block <- cumsum(c(TRUE, !(same_chr & overlaps)))
-		
-		log_msg('The genes could be separated into',length(unique(TWAS_GS_Mem_clean$Block)),'blocks.\n')
-		
-		# Calculate correlation matrix for each block, remove values for genes more than 5Mbs apart, and make it positive definite
-		log_msg('Creating correlation matrix... ')
-		# PERF: collect block matrices into a list, then bdiag() them in one call below.
-		# Previously .combine=bdiag_withNames caused a growing binary reduce (B-1 copies of
-		# an increasingly large sparse matrix); collecting first avoids that allocation pattern.
-		cor_blocks_list<-foreach(i=unique(TWAS_GS_Mem_clean$Block)) %dopar% {
-			frob_diff <- 0
-			if(sum(TWAS_GS_Mem_clean$Block == i) == 1){
-				cor_block_2<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
-				colnames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
-				rownames(cor_block_2)<-TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i]
-			} else {
-				cor_block<-abs(WGCNA::cor(as.matrix(GeneX_all[(names(GeneX_all) %in% TWAS_GS_Mem_clean$FILE[TWAS_GS_Mem_clean$Block == i])]), method='pearson'))
-				# Remove genes with a correlation exceeding an r2 of opt$max_r2
-				tmp<-cor_block
-				tmp[!lower.tri(tmp)] <- 0
-				keep <- colnames(cor_block)[!apply(tmp,2,function(x) any(abs(x) > sqrt(opt$max_r2)))]
-				cor_block_2 <- cor_block[(colnames(cor_block) %in% keep),(colnames(cor_block) %in% keep)]
-				TWAS_GS_Mem_clean_Block<-TWAS_GS_Mem_clean[which(TWAS_GS_Mem_clean$Block == i),]
-				TWAS_GS_Mem_clean_Block<-TWAS_GS_Mem_clean_Block[(TWAS_GS_Mem_clean_Block$FILE %in% keep),]
-				if(length(cor_block_2) == 1){
-					cor_block_2<-Matrix(1, nrow = 1, ncol = 1, sparse = TRUE)
-					colnames(cor_block_2)<-TWAS_GS_Mem_clean_Block$FILE
-					rownames(cor_block_2)<-TWAS_GS_Mem_clean_Block$FILE
-				} else {
-					# BUG FIX: removed early nearPD call gated on is.positive.definite(cor_block)
-					# — that checked the wrong matrix (cor_block, not cor_block_2). The only
-					# correct PD check is below, after sparsification.
 
-					# If genes are on a different chromosome or more than opt$cor_window apart then set the correlation to 0
-					# PERF: replaced inner for-loop over genes with vectorised outer() calls;
-					# all genes in a block share the same chromosome so the CHR check is omitted.
-					p0_b <- TWAS_GS_Mem_clean_Block$P0
-					p1_b <- TWAS_GS_Mem_clean_Block$P1
-					sparse_struc <- Matrix(
-					    outer(p1_b, p0_b - opt$cor_window, `>`) & outer(p0_b, p1_b + opt$cor_window, `<`),
-					    sparse = TRUE
-					)
-					cor_block_2[(sparse_struc[,] != 1)@x]<-0
-					# Change correlations with an r2 less opt$min_r2 to 0
-					cor_block_2[abs(cor_block_2) < sqrt(opt$min_r2)]<-0
-					# PERF/BUG FIX: removed orphaned is.positive.definite() call (result was
-					# discarded). Use tryCatch(chol()) instead of is.positive.definite(as.matrix())
-					# — chol() fails fast on non-PD matrices; is.positive.definite() uses a
-					# full eigendecomposition and forces a dense copy.
-					pd_ok <- tryCatch({ chol(as.matrix(cor_block_2)); TRUE }, error = function(e) FALSE)
-					if(!pd_ok){
-						cor_block_before <- as.matrix(cor_block_2)
-						cor_block_2 <- nearPD(cor_block_2,corr=T)$mat
-						frob_diff <- norm(as.matrix(cor_block_2) - cor_block_before, "F")
-					}
-					cor_block_2<-Matrix(cor_block_2, sparse=T)
-				}
-			}
-			log_progress(i, length(unique(TWAS_GS_Mem_clean$Block)))
-			
-			list(mat=cor_block_2, frob_diff=frob_diff)
-		}
-		# PERF: single bdiag() call over all block matrices; rownames/colnames set once.
-		frob_diffs <- sapply(cor_blocks_list, `[[`, 'frob_diff')
-		cor_blocks_list <- lapply(cor_blocks_list, `[[`, 'mat')
-		cor_block_all <- bdiag(cor_blocks_list)
-		all_block_names <- unlist(lapply(cor_blocks_list, rownames))
-		rownames(cor_block_all) <- colnames(cor_block_all) <- all_block_names
+		cor_block_all <- build_cor_matrix(
+			genes_df    = TWAS_GS_Mem_clean[, c('FILE','CHR','P0','P1')],
+			GeneX_all   = GeneX_all,
+			cor_window  = opt$cor_window,
+			min_r2      = opt$min_r2,
+			max_r2      = opt$max_r2,
+			log_msg     = log_msg,
+			log_progress= log_progress)$K
 
-		log_msg('Done!\n')
-		n_repaired <- sum(frob_diffs > 0)
-		if(n_repaired > 0){
-			log_msg('WARNING:',n_repaired,'of',length(frob_diffs),'genomic blocks required positive-definiteness repair (nearPD). Max Frobenius norm distortion:',round(max(frob_diffs),4),'.\n')
-		}
-
-		# Calculate the proportion of sparse values
-		prop_sparse<-sum(cor_block_all == 0)/(dim(cor_block_all)[1]*dim(cor_block_all)[2])
-		
-		log_msg('The correlation matrix of gene expression is ',prop_sparse*100,'% sparse.\n',sep='')
-		log_msg('After pruning',dim(cor_block_all)[1],'features remain.\n')
-		
 		TWAS_GS_Mem_clean<-TWAS_GS_Mem_clean[(TWAS_GS_Mem_clean$FILE %in% colnames(cor_block_all)),]
 		cor_block_all<-cor_block_all[match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all)),match(TWAS_GS_Mem_clean$FILE, colnames(cor_block_all))]
 		
@@ -617,7 +541,10 @@ if((length(gene_sets_clean_forMLM) > 0 & opt$competitive == T) | opt$self_contai
 
 	if(is.na(opt$input_CorMat) == F){
 		cor_block_all<-readRDS(opt$input_CorMat)
-		
+		# Backwards-compatible: build_cor_matrix.R now saves list(K, blocks);
+		# older runs saved a bare sparse matrix.
+		if(is.list(cor_block_all) && !is.null(cor_block_all$K)) cor_block_all <- cor_block_all$K
+
 		log_msg('Precomputed correlation matrix contains', dim(cor_block_all)[2],'features.\n')
 		
 		TWAS_GS_Mem_clean$FILE<-gsub(':','.',TWAS_GS_Mem_clean$FILE)

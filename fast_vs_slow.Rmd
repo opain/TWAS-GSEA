@@ -1,0 +1,126 @@
+---
+title: "TWAS-GSEA: fast vs slow comparison (directional mode)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, eval = F)
+library(data.table)
+```
+
+## Build prop_file subset
+
+Take a small subset of columns from the directional whole-database prop file.
+
+```{r subset}
+prop_in  <- "~/MyGit/GenoDisc/pipeline/resources/data/drug_targetor/wholedatabase_for_targetor_directional.prop"
+prop_out <- "~/oliverpainfel/test/twas_gsea/test_subset.prop"
+
+dt <- fread(prop_in, nrows = 0)
+ncols <- ncol(dt)
+keep <- c(1, 2:min(21, ncols))  # ID + 20 sets
+dt <- fread(prop_in, select = keep, nrows = 4000)
+fwrite(dt, prop_out, sep = "\t", quote = FALSE)
+dim(dt)
+```
+
+## Run slow
+
+```{bash slow}
+source ~/.bashrc
+conda activate twas_gsea
+
+time Rscript ~/MyGit/TWAS-GSEA/TWAS-GSEA.V1.2.R \
+  --twas_results /users/k1806347/oliverpainfel/Analyses/genodisc_validation/output_cad/results/CAD/twas/CAD_twas_Whole_Blood_GW_clean.txt.gz \
+  --pos /users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/fusion_snp_weights/Whole_Blood/Whole_Blood.pos \
+  --prop_file /users/k1806347/oliverpainfel/test/twas_gsea/test_subset.prop \
+  --expression_ref /users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/predicted_expression/Whole_Blood/Reference_Expression/Reference_Expression_Whole_Blood.txt.gz \
+  --n_cores 5 \
+  --covar NSNP \
+  --use_alt_id ID \
+  --linear_p_thresh 1 \
+  --min_Ngenes 2 \
+  --save_CorMat F \
+  --min_r2 0.01 \
+  --qqplot F \
+  --directional T \
+  --fast_competitive F \
+  --output /users/k1806347/oliverpainfel/test/twas_gsea/cmp_slow
+```
+
+## Run fast
+
+```{bash fast}
+source ~/.bashrc
+conda activate twas_gsea
+
+time Rscript ~/MyGit/TWAS-GSEA/TWAS-GSEA.V1.2.R \
+  --twas_results /users/k1806347/oliverpainfel/Analyses/genodisc_validation/output_cad/results/CAD/twas/CAD_twas_Whole_Blood_GW_clean.txt.gz \
+  --pos /users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/fusion_snp_weights/Whole_Blood/Whole_Blood.pos \
+  --prop_file /users/k1806347/oliverpainfel/test/twas_gsea/test_subset.prop \
+  --expression_ref /users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/predicted_expression/Whole_Blood/Reference_Expression/Reference_Expression_Whole_Blood.txt.gz \
+  --n_cores 5 \
+  --covar NSNP \
+  --use_alt_id ID \
+  --linear_p_thresh 1 \
+  --min_Ngenes 2 \
+  --save_CorMat F \
+  --min_r2 0.01 \
+  --qqplot F \
+  --directional T \
+  --fast_competitive T \
+  --output /users/k1806347/oliverpainfel/test/twas_gsea/cmp_fast
+```
+
+## Build cor matrix once (MAGMA-style script reuses this across runs)
+
+```{bash build_cor}
+source ~/.bashrc
+conda activate twas_gsea
+
+time Rscript ~/MyGit/TWAS-GSEA/build_cor_matrix.R \
+  --expression_ref /users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/predicted_expression/Whole_Blood/Reference_Expression/Reference_Expression_Whole_Blood.txt.gz \
+  --pos /users/k1806347/oliverpainfel/Software/MyGit/GenoDisc/pipeline/resources/data/fusion_snp_weights/Whole_Blood/Whole_Blood.pos \
+  --n_cores 5 \
+  --output /users/k1806347/oliverpainfel/test/twas_gsea/Whole_Blood
+```
+
+## Run MAGMA-style fast script
+
+```{bash magma}
+source ~/.bashrc
+conda activate twas_gsea
+
+time Rscript ~/MyGit/TWAS-GSEA/TWAS-GSEA-fast.R \
+  --twas_results /users/k1806347/oliverpainfel/Analyses/genodisc_validation/output_cad/results/CAD/twas/CAD_twas_Whole_Blood_GW_clean.txt.gz \
+  --input_CorMat /users/k1806347/oliverpainfel/test/twas_gsea/Whole_Blood.CorMat.RDS \
+  --prop_file /users/k1806347/oliverpainfel/test/twas_gsea/test_subset.prop \
+  --covar NSNP \
+  --use_alt_id ID \
+  --directional T \
+  --min_Ngenes 2 \
+  --n_cores 5 \
+  --output /users/k1806347/oliverpainfel/test/twas_gsea/cmp_magma
+```
+
+## Compare results
+
+```{r compare}
+slow  <- fread("/users/k1806347/oliverpainfel/test/twas_gsea/cmp_slow.competitive.txt")
+fast  <- fread("/users/k1806347/oliverpainfel/test/twas_gsea/cmp_fast.competitive.txt")
+magma <- fread("/users/k1806347/oliverpainfel/test/twas_gsea/cmp_magma.competitive.txt")
+
+m <- Reduce(function(a, b) merge(a, b, by = "GeneSet"),
+            list(slow[, .(GeneSet, T_slow=T,  P_slow=P)],
+                 fast[, .(GeneSet, T_fast=T,  P_fast=P)],
+                 magma[,.(GeneSet, T_magma=T, P_magma=P)]))
+m
+
+cat("Pearson r(T) slow vs fast :", cor(m$T_slow, m$T_fast),  "\n")
+cat("Pearson r(T) slow vs magma:", cor(m$T_slow, m$T_magma), "\n")
+cat("max |T_slow - T_magma|    :", max(abs(m$T_slow - m$T_magma)), "\n")
+
+par(mfrow = c(1, 2))
+plot(-log10(m$P_slow), -log10(m$P_fast),  xlab="-log10P slow", ylab="-log10P fast");  abline(0,1,col="red")
+plot(-log10(m$P_slow), -log10(m$P_magma), xlab="-log10P slow", ylab="-log10P magma"); abline(0,1,col="red")
+```

@@ -25,6 +25,8 @@ mkdir -p "$OUTDIR"
 set +u
 module load miniforge3/24.1.2-0-gcc-13.2.0
 eval "$(conda shell.bash hook)"
+export CONDA_ENVS_PATH=/scratch/prj/oliverpainfel/.conda/envs
+export CONDA_PKGS_DIRS=/scratch/prj/oliverpainfel/.conda/pkgs
 conda activate twas_gsea
 set -u
 export R_LIBS_USER=''
@@ -34,6 +36,7 @@ TWAS="$REPO_ROOT/TWAS-GSEA.V1.2.R"
 BASE_ARGS=(
   --twas_results "$REPO_ROOT/ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW"
   --pos          "$REPO_ROOT/CMC.BRAIN.RNASEQ.pos"
+  --gene_id_map  "$REPO_ROOT/data/gene_id_map.tsv"
   --competitive  T
   --self_contained F
   --linear_p_thresh 1
@@ -117,3 +120,45 @@ echo "  Concordance on 210-set outputs:"
 $RSCRIPT "$SCRIPT_DIR/compare_competitive.R" \
   "$OUTDIR/bench_fast.competitive.txt" \
   "$OUTDIR/bench_orig.competitive.txt" 2>/dev/null
+
+# =============================================================================
+# Stage 3: TWAS-GSEA-fast.R (MAGMA-style, no variance components)
+# =============================================================================
+echo ""
+echo "=== Stage 3: TWAS-GSEA-fast.R (MAGMA-style) ==="
+
+TWAS_FAST="$REPO_ROOT/TWAS-GSEA-fast.R"
+BUILD_COR="$REPO_ROOT/build_cor_matrix.R"
+
+# Build the panel-wide correlation matrix once via build_cor_matrix.R.
+if [ ! -f "$OUTDIR/panel.CorMat.RDS" ]; then
+  echo "  Building panel cor matrix via build_cor_matrix.R..."
+  { time $RSCRIPT "$BUILD_COR" \
+      --expression_ref "$REPO_ROOT/CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv" \
+      --pos            "$REPO_ROOT/CMC.BRAIN.RNASEQ.pos" \
+      --n_cores        1 \
+      --output         "$OUTDIR/panel" \
+      > "$OUTDIR/panel.stdout" 2>&1
+  } 2>&1 | grep -E "^real"
+fi
+
+echo "  Run: TWAS-GSEA-fast.R on 210-gene-set bench fixture"
+{ time $RSCRIPT "$TWAS_FAST" \
+    --twas_results "$REPO_ROOT/ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW" \
+    --input_CorMat "$OUTDIR/panel.CorMat.RDS" \
+    --gmt_file     "$SCRIPT_DIR/bench.gmt" \
+    --gene_id_map  "$REPO_ROOT/data/gene_id_map.tsv" \
+    --min_Ngenes   5 \
+    --n_cores      1 \
+    --output       "$OUTDIR/bench_magma" \
+    > "$OUTDIR/bench_magma.stdout" 2>&1
+} 2>&1 | grep -E "^real"
+
+MAGMA_DUR=$(grep "Finished at" "$OUTDIR/bench_magma.log" 2>/dev/null | tail -1)
+echo "  $MAGMA_DUR  [magma]"
+
+echo ""
+echo "  Concordance: TWAS-GSEA-fast.R vs --fast_competitive F (slow):"
+$RSCRIPT "$SCRIPT_DIR/compare_competitive.R" \
+  "$OUTDIR/bench_magma.competitive.txt" \
+  "$OUTDIR/bench_orig.competitive.txt" 2>/dev/null || true
