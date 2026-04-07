@@ -32,6 +32,8 @@ if command -v module &>/dev/null; then
   module load miniforge3/24.1.2-0-gcc-13.2.0 2>/dev/null || true
 fi
 eval "$(conda shell.bash hook)"
+export CONDA_ENVS_PATH=/scratch/prj/oliverpainfel/.conda/envs
+export CONDA_PKGS_DIRS=/scratch/prj/oliverpainfel/.conda/pkgs
 conda activate twas_gsea
 set -u
 export R_LIBS_USER=''

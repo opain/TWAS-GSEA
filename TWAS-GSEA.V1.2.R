@@ -225,7 +225,22 @@ log_msg(
 # V1.2 26/09/2018
 #################################################################
 
-Options are:\n')
+')
+
+DEPRECATION_NOTICE <- paste0(
+'-----------------------------------------------------------------\n',
+'DEPRECATION NOTICE\n',
+'TWAS-GSEA.V1.2.R is deprecated for competitive analyses. Use the\n',
+'faster TWAS-GSEA-fast.R workflow instead:\n',
+'    Rscript build_cor_matrix.R --expression_ref ... --pos ... --output panel\n',
+'    Rscript TWAS-GSEA-fast.R   --twas_results ... --input_CorMat panel.CorMat.RDS ...\n',
+'This script remains available for linear, self-contained, and\n',
+'weighted analyses, which TWAS-GSEA-fast.R does not yet support.\n',
+'-----------------------------------------------------------------\n')
+log_msg(DEPRECATION_NOTICE)
+message(DEPRECATION_NOTICE)
+
+log_msg('Options are:\n')
 log_msg(paste(capture.output(print(opt)), collapse='\n'), '\n')
 log_msg('Analysis started at',as.character(start.time),'\n')
 

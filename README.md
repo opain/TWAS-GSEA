@@ -1,257 +1,232 @@
 # TWAS-based Gene Set Enrichment Analysis (TWAS-GSEA)
 
-TWAS-GSEA is a tool for performing gene set or gene property analysis based TWAS results. It uses a similar method to MAGMA, in that it uses a mixed model to test for enrichment, specifying a gene-gene correlation matrix as a random effect to avoid bias due to non-independent observations. It uses the fantastic package lme4qtl, which enables the use of sparse matrices in mixed models, making this analysis computationally feasible.
+TWAS-GSEA is a tool for performing gene set or gene property analysis on TWAS results. It uses a similar method to MAGMA, in that it fits a mixed model to test for enrichment, specifying a gene-gene correlation matrix as a random effect to avoid bias due to non-independent gene-level statistics.
 
-TWAS-GSEA was written to analyse the output of the FUSION's [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) script, though it could be used analyse any gene level association results. 
+The recommended workflow is `build_cor_matrix.R` + `TWAS-GSEA-fast.R`. The original `TWAS-GSEA.V1.2.R` is **deprecated** for competitive analyses but is retained for linear, self-contained and weighted analyses (see [Legacy](#legacy-twas-geseav12r) below).
 
-## Getting started
+TWAS-GSEA was written to analyse the output of FUSION's [**FUSION.assoc_test.R**](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R), though it can be used on any gene-level association results.
 
-### Prerequisites
+## Install
 
-#### Install dependencies
+You can use conda/mamba to install the dependencies, or install them manually.
 
-You can use conda/mamba to install the required software dependencies, or install them manually.
-
-##### Using conda
+### Using conda
 
 ```bash
-# Create twas_gsea environment using conda or mamba
 conda env create -f env.yaml
-
-# Activate twas_gsea environment
 conda activate twas_gsea
-
-# Open R and install lme4qtl
-R
-library(devtools)
-install_github("variani/lme4qtl")
 ```
 
-##### Install manually:
-  
+`lme4qtl` is only required if you want to run the legacy `TWAS-GSEA.V1.2.R`. The recommended `TWAS-GSEA-fast.R` workflow does not depend on it.
+
 ```R
-# Install packages from the CRAN
-install.packages(c('data.table','optparse','WGCNA','Matrix','VGAM','gdata','lme4qtl','lme4','matrixcalc','pbkrtest','foreach','doMC'))
-
-# Install packages from Bioconductor
-source("https://bioconductor.org/biocLite.R")
-biocLite(c('GWASTools','biomaRt','qusage'))
-
-# Install packages from GitHub
+# Optional, only for legacy V1.2:
 library(devtools)
 install_github("variani/lme4qtl")
-
 ```
 
-#### Perform TWAS using FUSION:
-Instructions on how to perform a TWAS are available [here](http://gusevlab.org/projects/fusion/).
+### Manual install
+
+```R
+install.packages(c('data.table','optparse','WGCNA','Matrix','VGAM','foreach','doMC','matrixcalc','qusage'))
+# Optional, legacy V1.2 only:
+install.packages(c('gdata','lme4','pbkrtest','speedglm'))
+library(devtools); install_github("variani/lme4qtl")
+```
 
-#### Impute gene expression levels in a reference sample:
-Instructions on how to impute gene expression levels are [here](https://github.com/opain/Predicting-TWAS-features).
+### Required upstream tools
 
+- Perform a TWAS using FUSION: instructions [here](http://gusevlab.org/projects/fusion/).
+- Predict gene expression in a reference panel: instructions [here](https://github.com/opain/Predicting-TWAS-features).
 
-### Input files
+---
 
-##### --twas_results
+## Recommended workflow
 
-The output of [**FUSION.assoc_test.R** ](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) or a file containing the following columns FILE, ID, P0, P1, TWAS.Z, TWAS.P.  Per chromosome files should be combined into a single file. An example is available [here](ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW). Gene IDs are expected to be gene symbols (this can be changed using --use_alt_id parameter). If using --allow_duplicate_ID F, the --twas_results must also contain the MODELCV.R2 column from FUSION, as this is used to retain the best feature for each gene.
+Two steps. Step 1 is per expression panel and is reused across many TWAS / gene-set runs. Step 2 is the per-analysis call.
 
-##### --pos
+### Step 1: precompute the gene-gene correlation matrix
 
-A file containing the start and stop coordinates of each feature. This should be the .pos file used to perform the TWAS. Gene IDs are expected to be gene symbols (this can be changed using --use_alt_id parameter).
+```sh
+Rscript build_cor_matrix.R \
+  --expression_ref CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv \
+  --pos            CMC.BRAIN.RNASEQ.pos \
+  --output         demo
+```
 
-##### --expression_ref
+Produces `demo.CorMat.RDS` (a sparse block-diagonal correlation matrix plus per-row block index) and `demo.CorMat.log`. Run this once per expression panel; reuse the `.RDS` for every subsequent analysis on the same panel.
 
-A file containing feature predictions in the target sample. This is output of the FeaturePred script. The first two columns are FID and IID, then each column contains feature predictions for each individual. An example is available here. The gene expression column names must match the values in the FILE column in the --twas_results file. IFRisk ignores the substring before the last '/' and the '.wgt.RDat' string when matching. For example, the column name for the gene expression corresponding to the first value of the example TWAS results should be 'CMC.LOC643837'. The file can whitespace or comma delimited. If the file name ends .gz, the file will be assumed to gzipped.
+#### `build_cor_matrix.R` options
 
-##### --gene_id_map
+| Flag | Default | Description |
+|---|---|---|
+| `--expression_ref` | required | Predicted-expression file (FeaturePred output). One column per gene. `.gz` allowed. |
+| `--pos` | required | FUSION `.pos` file with `WGT`, `CHR`, `P0`, `P1`. |
+| `--cor_window` | `5e6` | Window in bp for retaining gene-gene correlations. |
+| `--min_r2` | `1e-4` | r² threshold below which correlations are zeroed (sparsification). |
+| `--max_r2` | `1` | r² threshold above which one of a collinear gene pair is dropped. |
+| `--n_cores` | `1` | Cores for the per-block correlation step. |
+| `--output` | required | Output prefix. Writes `<output>.CorMat.RDS` and `<output>.CorMat.log`. |
 
-Path to a pre-downloaded gene symbol to Entrez ID mapping file (two tab-delimited columns: external_gene_name, entrezgene_id). When provided, skips the live Ensembl BioMart query. A bundled copy for GRCh37 is available at [data/gene_id_map.tsv](data/gene_id_map.tsv). Only used when --use_alt_id is not specified.
+### Step 2: run the analysis
 
-Default = NA
+```sh
+Rscript TWAS-GSEA-fast.R \
+  --twas_results ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW \
+  --input_CorMat demo.CorMat.RDS \
+  --gmt_file     c2.all.v7.5.1.mini.entrez.gmt \
+  --gene_id_map  data/gene_id_map.tsv \
+  --output       demo
+```
 
-##### --gmt_file (for gene set analysis)
+Produces `demo.competitive.txt` and `demo.log`.
 
-A standard .gmt file which contains gene set names in the first column, a second column which can be ignored by the analysis, and then a series of entrez ids. This file must be tab delimited. An example can be found [here](c2.all.v7.5.1.mini.entrez.gmt).
+#### `TWAS-GSEA-fast.R` options
 
-##### --prop_file (for gene property analysis)
+| Flag | Default | Description |
+|---|---|---|
+| `--twas_results` | required | TWAS results file (FUSION format or any file with `FILE`, `ID`, `TWAS.Z`, `TWAS.P`, `MODELCV.R2`). `.gz` allowed. |
+| `--input_CorMat` | required | `.CorMat.RDS` from `build_cor_matrix.R`. |
+| `--gmt_file` | NA | Gene-set file in `.gmt` format. Mutually exclusive with `--prop_file`. |
+| `--prop_file` | NA | Gene-property file (first column `ID`, then one numeric column per property). Mutually exclusive with `--gmt_file`. |
+| `--covar` | `none` | Comma-separated covariate columns from `--twas_results`, e.g. `NSNP,GeneLength`. |
+| `--use_alt_id` | NA | Alternative ID column in `--twas_results` to match against the gene-set / property file (e.g. `ID`). When unset, gene symbols → Entrez IDs are mapped via `--gene_id_map`. |
+| `--gene_id_map` | NA | Tab-delimited file with columns `external_gene_name`, `entrezgene_id`. Required when `--use_alt_id` is not set. A bundled GRCh37 copy is at [`data/gene_id_map.tsv`](data/gene_id_map.tsv). |
+| `--directional` | `FALSE` | If `T`, use signed `TWAS.Z` as outcome (tests for direction-aware enrichment). |
+| `--probit_P_as_Z` | `TRUE` | Use `probit(1 − TWAS.P)` as outcome (overridden when `--directional T`). |
+| `--two_sided` | `FALSE` | Two-sided p-values (test enrichment **and** depletion). See note below. |
+| `--outlier_threshold` | `-3,6` | Lower,upper truncation of the outcome z-score. |
+| `--min_Ngenes` | `2` | Minimum gene-set / property size to test. |
+| `--allow_duplicate_ID` | `FALSE` | Keep multiple TWAS rows per gene; otherwise retain best `MODELCV.R2`. |
+| `--h_max` | `100` | Upper bound on the variance ratio h = σ²_u / σ²_e in the REML search. |
+| `--reml_tol` | `1e-6` | Convergence tolerance for the 1-D Brent search. |
+| `--p_cor_method` | `fdr` | Multiple-testing correction (passed to `p.adjust`). |
+| `--n_cores` | `1` | Cores. |
+| `--output` | required | Output prefix. Writes `<output>.competitive.txt` and `<output>.log`. |
 
-The first column should have the header 'ID' and contain gene ids. These are assumed to be entrez IDs. Each column after wards should contain values for each gene, with a header stating the gene property. 
+---
 
-### Optional parameters
+## How it works
 
-##### --n_cores
+`TWAS-GSEA-fast.R` fits the same statistical model as V1.2:
 
-Number of cores for parallel computing.
+```
+y = X β + g + ε     g ~ N(0, σ²_u K)     ε ~ N(0, σ²_e I)
+V = σ²_u K + σ²_e I
+```
 
-Default = 1
+where `K` is the block-diagonal sparse predicted-expression correlation matrix from `build_cor_matrix.R`.
 
-##### --covar
+V1.2 estimates `(σ²_u, σ²_e)` via `lme4qtl::relmatLmer`, which is a general sparse-mixed-model fitter and does not exploit `K`'s block-diagonal structure. `TWAS-GSEA-fast.R` instead uses a custom REML routine (`R/reml_blockdiag.R`) that:
 
-Covariates you would like to include. The covariate data must be in the TWAS file, except gene length. Covariate names must be comma separated (e.g. GeneLength,NSNP,MODELCV.R2). Specify 'none' if you don't want include any covariates.
+1. Computes a per-block eigendecomposition of `K` once upfront. Cost is `Σ_b n_b³`, sub-second for typical TWAS panels (~50 blocks of size ~150).
+2. Reparameterises `V = σ²(hK + I)` and profiles out `σ²` analytically.
+3. Optimises the resulting 1-D profiled likelihood in `h` via Brent's method (`stats::optimise`).
 
-Default = 'none'
+This is the FastLMM / GCTA-LMM trick specialised to the block-diagonal case. It is **mathematically equivalent** to `lme4qtl::relmatLmer` on the same model — same MLE, not an approximation — but much faster and with no `lme4qtl` dependency on the hot path.
 
-##### --weights
+After the null fit, `TWAS-GSEA-fast.R` runs the same vectorised GLS pipeline as V1.2's `--fast_competitive T` path: sparse Cholesky of `V_hat`, whiten `y` / `X` / gene-set indicator matrix `Z`, residualise against the null design via QR, then a single batched `crossprod` across all gene sets.
 
-Variable used to weight observations. The variable must be in the TWAS file.
+**Concordance and speed** (from `validation/run_validation.sh` Stage 3, on the bench fixture of 210 gene sets / ~539 genes):
 
-Default = NA
+| | Wall time | Concordance vs V1.2 slow |
+|---|---|---|
+| V1.2 slow (`--fast_competitive F`) | 3m 14s | reference |
+| V1.2 fast (`--fast_competitive T`) | 15.6s | r(T) = 0.999996, max\|ΔT\| = 0.014 |
+| **TWAS-GSEA-fast.R** | **4.0s** | **r(T) = 0.999985, max\|ΔT\| = 0.018** |
 
-##### --use_alt_id
+The custom REML fit alone takes ~0.24s; the rest is I/O and the GLS pipeline.
 
-Specify column name in TWAS results file to be used for matching with the gmt or property file.
+---
 
-Default = NA
+## Input file formats
 
-##### --cor_window
+### `--twas_results`
 
-Size of window for correlations between genes.
+The output of [**FUSION.assoc_test.R**](https://github.com/gusevlab/fusion_twas/blob/master/FUSION.assoc_test.R) or any file containing the columns `FILE`, `ID`, `P0`, `P1`, `TWAS.Z`, `TWAS.P`. Per-chromosome files should be combined into a single file. An example is at [ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW](ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW). Gene IDs are expected to be gene symbols (override with `--use_alt_id`). When `--allow_duplicate_ID F` (default), the file must also contain `MODELCV.R2` (used to retain the best feature per gene).
 
-Default = 5e6
+### `--pos`
 
-##### --min_Ngenes
+A FUSION `.pos` file with `WGT`, `ID`, `CHR`, `P0`, `P1`. Used by `build_cor_matrix.R` to determine block boundaries.
 
-Minimum number of available genes required in gene set for analysis.
+### `--expression_ref`
 
-Default = 5
+The output of FeaturePred: first two columns `FID`/`IID`, then one column per gene. Column names must match the `FILE` column of `--twas_results` after stripping the path prefix and `.wgt.RDat` suffix. Whitespace- or comma-delimited; `.gz` allowed.
 
-##### --qqplot
+### `--gmt_file` (gene-set analysis)
 
-Specify as F if you do not want a qqplot.
+Standard `.gmt` file: tab-delimited, one row per set, first column = set name, second = description (ignored), then a series of Entrez IDs. Example: [c2.all.v7.5.1.mini.entrez.gmt](c2.all.v7.5.1.mini.entrez.gmt).
 
-Default = T
+### `--prop_file` (gene-property analysis)
 
-##### --probit_P_as_Z
+First column header `ID` (Entrez IDs), then one numeric column per property. The property is z-scored within `TWAS-GSEA-fast.R` before testing.
 
-Specify as F if you want to used abs(TWAS.Z) as the outcome.
+### `--gene_id_map`
 
-Default = T
+Two tab-delimited columns: `external_gene_name`, `entrezgene_id`. Used to map TWAS gene symbols to Entrez IDs when `--use_alt_id` is not set, avoiding a live BioMart query. A bundled GRCh37 copy is at [data/gene_id_map.tsv](data/gene_id_map.tsv).
 
-##### --directional
+---
 
-Specify as T if you want to use TWAS.Z as the outcome (i.e. take into account the direction of TWAS association). When T, probit_P_as_Z is automatically set to F.
+## Output files
 
-Default = F
+### `<output>.competitive.txt`
 
-##### --p_cor_method
+Space-delimited results of the competitive test:
 
-Select method for correction of multiple testing. Options are the same as the method option for the p.adjust function.
+| Column | Meaning |
+|---|---|
+| `GeneSet` | Gene-set or property name |
+| `Estimate` | GLS coefficient |
+| `SE` | Standard error |
+| `T` | Test statistic |
+| `N_Mem_Avail` | Genes from the set with TWAS data (gmt mode only) |
+| `N_Mem` | Total genes in the set (gmt mode only) |
+| `P` | One-sided (or two-sided if `--two_sided T`) p-value |
+| `P.CORR` | Multiple-testing-corrected p-value (`p.adjust` with `--p_cor_method`) |
 
-##### --outlier_threshold
+### `<output>.log`
 
-Threshold for truncating Z scores.
+Run log with options, gene counts, the REML fit (`σ²_u`, `σ²_e`, `h_hat`), and timing.
 
-Default = 3
+---
 
-##### --save_CorMat
+## Statistical note: one-sided p-values
 
-Specify T if you would like to save the correlation matrix.
+By default all p-values reported by `TWAS-GSEA-fast.R` (and V1.2) are **one-sided**, testing for positive enrichment (gene-set members have higher `ZSCORE` than background). This is designed to detect gene sets whose members show stronger TWAS associations than expected, but will not detect systematic depletion. If you need two-sided tests use `--two_sided T`, or convert manually via `p_two_sided = 2 * min(p, 1 - p)`.
 
-Default = F
+---
 
-##### --input_CorMat
+## Legacy: TWAS-GSEA.V1.2.R
 
-RDS file containing previously made correlation matrix.
+`TWAS-GSEA.V1.2.R` is **deprecated** for competitive analyses — `TWAS-GSEA-fast.R` is mathematically equivalent and ~50× faster. V1.2 prints a deprecation banner on every run. It remains available because it still provides several features `TWAS-GSEA-fast.R` does not:
 
-Default = F
+- **Linear stage** — `*.linear.txt` from a fast standard linear model, plus `--linear_p_thresh` to gate which sets go to the mixed model.
+- **Self-contained analysis** (`--self_contained T`) — `*.self_contained.txt`.
+- **`--weights`** — variance-weighting via `lme4qtl`.
+- **`*.sig.txt`** — gene-level breakdown for significant gene sets (linear and competitive).
+- **`*.png`** QQ-plots (`--qqplot T`).
+- **`--save_CorMat`** / `--input_CorMat` — V1.2 can save and reload its own correlation matrix (uses the same `R/build_cor_matrix_helper.R` as `build_cor_matrix.R`, so `.CorMat.RDS` files are interchangeable across the two scripts).
+- Live BioMart fallback when `--gene_id_map` is not provided.
 
-##### --allow_duplicate_ID
+V1.2-only flags (in addition to those listed above): `--competitive`, `--self_contained`, `--linear_p_thresh`, `--qqplot`, `--save_CorMat`, `--input_CorMat`, `--fast_competitive`, `--weights`.
 
-Specify T if you would like to include multiple copies of the same gene ID. Otherwise only the version of the ID with the best R-squared will be retained.
-
-Default = F
-
-##### --self_contained
-
-Specify T if you would like to perform self contained analysis.
-
-Default = F
-
-##### --competitive
-
-Specify F if you do not want to perform competitive analysis.
-
-Default = T
-
-##### --fast_competitive
-
-Use fast GLS whitening for competitive mixed model analysis. This is approximately equivalent to the original merPredD+refit approach for typical TWAS sample sizes (N >> gene set size). Set to F to use the original per-gene-set variance component re-optimisation.
-
-Default = T
-
-##### --two_sided
-
-Use two-sided p-values, testing for both enrichment and depletion. By default, all p-values are one-sided (enrichment only). See the statistical note below for details.
-
-Default = F
-
-##### --max_r2
-
-Specify the R-squared threshold between genes for pruning.
-
-Default = 1
-
-##### --min_r2
-
-Specify the R-squared threshold between genes assuming independence.
-
-Default = 0.0001
-
-##### --linear_p_thresh
-
-Linear model p-value threshold for mixed model analysis. Default behavior is to use a multiple testing corrected p-value threshold of 0.1.
-
-Default = NA
-
-##### --output
-
-Output file prefix for results files. This must be specified.
-
-Default = NULL
-
-
-
-### Statistical note: one-sided p-values
-
-All p-values reported by TWAS-GSEA (linear, competitive, and self-contained) are **one-sided**, testing for positive enrichment (i.e. whether genes in a gene set have higher ZSCORE values than background). This means the analysis is designed to detect gene sets whose members show stronger TWAS associations than expected, but will not detect gene sets with systematically *weaker* associations (depletion). If you need a two-sided test, you can convert via `p_two_sided = 2 * min(p, 1 - p)`.
-
-### Output files
-
-##### '.txt'
-
-These space delimited files will contain all results for either competitive linear models, competitive mixed models, or self-contained mixed models.
-
-##### '.sig.txt'
-
-These files will contain a breakdown of the genes within gene sets achieving significance for either competitive linear models, competitive mixed models, or self-contained mixed models.
-
-##### '.png'
-
-A QQ-plot, comparing the observed association results to a null distribution.
-
-##### '.log'
-
-This is a log file containing general information on the time taken, any errors, the number of genes at different stages and more.
-
-
-
-## Example
-
-For demonstration purposes, we will set the --linear_p_thresh parameter to 1, so all gene sets are included in the linear mixed model analysis.
+### V1.2 example
 
 ```sh
 Rscript TWAS-GSEA.V1.2.R \
-	--twas_results ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW \
-	--pos CMC.BRAIN.RNASEQ.pos \
-	--gmt_file c2.all.v7.5.1.mini.entrez.gmt \
-	--expression_ref CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv \
-	--linear_p_thresh 1 \
-	--gene_id_map data/gene_id_map.tsv \
-	--output demo
+  --twas_results ukbiobank-2017-1160-prePRS-fusion-mini.tsv.GW \
+  --pos          CMC.BRAIN.RNASEQ.pos \
+  --gmt_file     c2.all.v7.5.1.mini.entrez.gmt \
+  --expression_ref CMC.BRAIN.RNASEQ_GeneX_all_MINI.csv \
+  --gene_id_map  data/gene_id_map.tsv \
+  --linear_p_thresh 1 \
+  --output       demo
 ```
 
+For full V1.2 option documentation see the deprecation banner printed by the script and the inline `optparse` definitions at the top of `TWAS-GSEA.V1.2.R`.
+
+---
+
 ## Help
-If you have any questions or comments use the [google group](https://groups.google.com/forum/#!forum/twas-related-r-scripts), or email oliver.pain@kcl.ac.uk.
 
-
+If you have questions or comments, use the [Google group](https://groups.google.com/forum/#!forum/twas-related-r-scripts) or email oliver.pain@kcl.ac.uk.
