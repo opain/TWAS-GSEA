@@ -122,10 +122,10 @@ $RSCRIPT "$SCRIPT_DIR/compare_competitive.R" \
   "$OUTDIR/bench_orig.competitive.txt" 2>/dev/null
 
 # =============================================================================
-# Stage 3: TWAS-GSEA-fast.R (MAGMA-style, no variance components)
+# Stage 3: TWAS-GSEA-fast.R (blockwise REML, custom variance-component fitter)
 # =============================================================================
 echo ""
-echo "=== Stage 3: TWAS-GSEA-fast.R (MAGMA-style) ==="
+echo "=== Stage 3: TWAS-GSEA-fast.R (blockwise REML) ==="
 
 TWAS_FAST="$REPO_ROOT/TWAS-GSEA-fast.R"
 BUILD_COR="$REPO_ROOT/build_cor_matrix.R"
@@ -150,15 +150,15 @@ echo "  Run: TWAS-GSEA-fast.R on 210-gene-set bench fixture"
     --gene_id_map  "$REPO_ROOT/data/gene_id_map.tsv" \
     --min_Ngenes   5 \
     --n_cores      1 \
-    --output       "$OUTDIR/bench_magma" \
-    > "$OUTDIR/bench_magma.stdout" 2>&1
+    --output       "$OUTDIR/bench_blockwise" \
+    > "$OUTDIR/bench_blockwise.stdout" 2>&1
 } 2>&1 | grep -E "^real"
 
-MAGMA_DUR=$(grep "Finished at" "$OUTDIR/bench_magma.log" 2>/dev/null | tail -1)
-echo "  $MAGMA_DUR  [magma]"
+BLOCKWISE_DUR=$(grep "Finished at" "$OUTDIR/bench_blockwise.log" 2>/dev/null | tail -1)
+echo "  $BLOCKWISE_DUR  [blockwise]"
 
 echo ""
 echo "  Concordance: TWAS-GSEA-fast.R vs --fast_competitive F (slow):"
 $RSCRIPT "$SCRIPT_DIR/compare_competitive.R" \
-  "$OUTDIR/bench_magma.competitive.txt" \
+  "$OUTDIR/bench_blockwise.competitive.txt" \
   "$OUTDIR/bench_orig.competitive.txt" 2>/dev/null || true

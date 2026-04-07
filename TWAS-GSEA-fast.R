@@ -98,7 +98,7 @@ compute_pval <- function(t_val, two_sided){
 
 log_msg(
 '#################################################################
-# TWAS-GSEA-fast: MAGMA-style competitive GSEA
+# TWAS-GSEA-fast: blockwise-REML competitive GSEA
 #################################################################
 Options:\n')
 log_msg(paste(capture.output(print(opt)), collapse = '\n'), '\n')
