@@ -29,6 +29,8 @@ option_list <- list(
 		help='TWAS results file (gz allowed) [required]'),
 	make_option('--input_CorMat', action='store', default=NA, type='character',
 		help='.CorMat.RDS produced by build_cor_matrix.R [required]'),
+	make_option('--pos', action='store', default=NA, type='character',
+		help='Optional FUSION .pos file. When provided, P0/P1 in --twas_results are overridden from .pos (FUSION bug fix), the +/-5e5 SNP-window padding is applied, and a GeneLength = P1-P0 column is computed so it can be passed to --covar [default NA]'),
 	make_option('--gmt_file',  action='store', default=NA, type='character',
 		help='Gene set file in gmt format [optional]'),
 	make_option('--prop_file', action='store', default=NA, type='character',
@@ -110,11 +112,32 @@ log_msg('Started at ', as.character(start.time), '\n')
 TWAS <- data.frame(fread(opt$twas_results))
 log_msg('TWAS results: ', nrow(TWAS), ' rows.\n', sep = '')
 
-# Normalise FILE column.
+# Stage 1: normalise FILE to "Panel/Gene.wgt.RDat" form (last two path
+# components). This matches the WGT column in FUSION .pos files.
 file_list <- strsplit(as.character(TWAS$FILE), '/')
 file_tab  <- lapply(file_list, function(x) x[(length(x) - 1):length(x)])
 tmp <- data.frame(do.call(rbind, file_tab))
 TWAS$FILE <- do.call(paste, c(tmp[, (ncol(tmp) - 1):ncol(tmp)], sep = '/'))
+
+# Optional .pos merge: overrides P0/P1 (FUSION bug fix), pads by +/-5e5 (the
+# FUSION SNP window), and creates GeneLength so it can be used as a covariate.
+# Mirrors TWAS-GSEA.V1.2.R:241-253 exactly. Must happen BEFORE further FILE
+# normalisation because pos$WGT is in the "Panel/Gene.wgt.RDat" form.
+if(!is.na(opt$pos)){
+	pos <- data.frame(fread(opt$pos))
+	if(!all(c('WGT','P0','P1') %in% names(pos))) stop('.pos file must contain WGT, P0, P1 columns')
+	TWAS$P0 <- NULL
+	TWAS$P1 <- NULL
+	TWAS <- merge(TWAS, pos[, c('WGT','P0','P1')], by.x = 'FILE', by.y = 'WGT')
+	log_msg('Positional information available for ', nrow(TWAS), ' TWAS features after .pos merge.\n', sep = '')
+	TWAS$P0 <- TWAS$P0 - 5e5
+	TWAS$P0[TWAS$P0 < 0] <- 0
+	TWAS$P1 <- TWAS$P1 + 5e5
+	TWAS$GeneLength <- TWAS$P1 - TWAS$P0
+}
+
+# Stage 2: strip the path prefix and .wgt.RDat suffix and normalise punctuation
+# so FILE matches the gene IDs in the cor matrix and gene-set/property files.
 TWAS$FILE <- sub('.*/', '', TWAS$FILE)
 TWAS$FILE <- sub('.wgt.RDat', '', TWAS$FILE)
 TWAS$FILE <- gsub(':', '.', TWAS$FILE)
