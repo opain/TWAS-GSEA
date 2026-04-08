@@ -210,24 +210,77 @@ if(!is.na(opt$gmt_file)){
 	gene_sets_clean <- keep_gs
 	using_prop <- FALSE
 } else {
-	gene_prop <- data.frame(fread(opt$prop_file))
-	log_msg('Gene property file: ', ncol(gene_prop) - 1, ' properties.\n', sep = '')
-	if(is.na(opt$use_alt_id)){
-		TWAS_GS <- merge(TWAS, gene_prop, by.x = 'entrezgene_id', by.y = 'ID')
+	# Load the prop file in column chunks via cut. Avoids fread's gzipped path
+	# segfaulting on very wide files (200k+ columns) and keeps peak memory bounded
+	# by never holding more than one chunk + the preallocated target matrix.
+	#
+	# If the file is gzipped, decompress once to a temp tsv first — otherwise
+	# every chunk would re-decompress the entire stream (108 × 18 GB = unworkable).
+	prop_path_raw <- opt$prop_file
+	tmp_prop      <- NULL
+	if(grepl('\\.gz$', prop_path_raw)){
+		tmp_prop <- tempfile(pattern = 'twas_gsea_prop_', fileext = '.tsv')
+		log_msg('Decompressing prop file to ', tmp_prop, ' ... ', sep = '')
+		# Use system2 with stdout= so R handles the redirect (no shell layer
+		# involved — earlier 'sh -c "zcat > tmp"' invocations were unreliable
+		# inside the snakemake-spawned R subshell).
+		decompress_status <- system2('gunzip', args = c('-c', prop_path_raw), stdout = tmp_prop)
+		if(decompress_status != 0) stop('Failed to decompress --prop_file (gunzip exit ', decompress_status, ').')
+		log_msg('done.\n')
+		prop_path <- tmp_prop
 	} else {
-		TWAS_GS <- merge(TWAS, gene_prop, by.x = 'Alt_ID', by.y = 'ID')
+		prop_path <- prop_path_raw
 	}
-	prop_cols <- names(gene_prop)[-1]
-	prop_cols <- prop_cols[prop_cols %in% names(TWAS_GS)]
-	keep_gs <- prop_cols[colSums(abs(TWAS_GS[, prop_cols, drop = FALSE])) >= opt$min_Ngenes]
-	# Keep an unscaled copy of the kept property columns so per-set non-zero
-	# counts can be reported after gene-overlap subsetting (scale() below would
-	# turn every entry non-zero).
-	prop_unscaled <- as.matrix(TWAS_GS[, keep_gs, drop = FALSE])
-	rownames(prop_unscaled) <- TWAS_GS$FILE
-	for(i in keep_gs) TWAS_GS[[i]] <- as.numeric(scale(TWAS_GS[[i]]))
+	on.exit(if(!is.null(tmp_prop) && file.exists(tmp_prop)) unlink(tmp_prop), add = TRUE)
+
+	header  <- names(fread(cmd = paste0('head -1 ', shQuote(prop_path)), header = TRUE))
+	n_props <- length(header) - 1L
+	log_msg('Gene property file: ', n_props, ' properties.\n', sep = '')
+
+	id_col   <- fread(cmd = paste0("cut -f1 ", shQuote(prop_path)), header = TRUE)[[1]]
+	twas_ids <- if(is.na(opt$use_alt_id)) TWAS$entrezgene_id else TWAS$Alt_ID
+	keep_rows <- which(id_col %in% twas_ids)
+	if(length(keep_rows) == 0) stop('No overlap between TWAS gene IDs and --prop_file ID column.')
+	log_msg('  ', length(keep_rows), ' / ', length(id_col), ' prop rows overlap TWAS.\n', sep = '')
+
+	prop_mat <- matrix(0, nrow = length(keep_rows), ncol = n_props)
+	rownames(prop_mat) <- id_col[keep_rows]
+	colnames(prop_mat) <- header[-1]
+
+	chunk_cols <- 5000L
+	n_chunks   <- ceiling(n_props / chunk_cols)
+	chunk_idx  <- 0L
+	for(j_start in seq(2L, n_props + 1L, by = chunk_cols)){
+		j_end <- min(j_start + chunk_cols - 1L, n_props + 1L)
+		chunk_idx <- chunk_idx + 1L
+		log_msg('  reading prop columns ', j_start - 1L, '-', j_end - 1L,
+		        ' (chunk ', chunk_idx, '/', n_chunks, ')\n', sep = '')
+		chunk <- fread(cmd = paste0('cut -f', j_start, '-', j_end, ' ', shQuote(prop_path)), header = TRUE)
+		prop_mat[, (j_start - 1L):(j_end - 1L)] <- as.matrix(chunk)[keep_rows, , drop = FALSE]
+		rm(chunk); gc(verbose = FALSE)
+	}
+
+	if(!is.null(tmp_prop)){
+		unlink(tmp_prop)
+		tmp_prop <- NULL
+	}
+
+	nz_per_prop <- colSums(prop_mat != 0)
+	keep_idx    <- which(nz_per_prop >= opt$min_Ngenes)
+	if(length(keep_idx) == 0) stop('No prop columns retained after --min_Ngenes filter.')
+	prop_mat    <- prop_mat[, keep_idx, drop = FALSE]
+	keep_gs     <- colnames(prop_mat)
+
+	# TWAS_GS stays as the small TWAS data.frame; prop_mat lives separately and
+	# is kept aligned to TWAS_GS row-by-row through the cor-matrix subsetting.
+	join_idx  <- match(twas_ids, rownames(prop_mat))
+	keep_twas <- !is.na(join_idx)
+	TWAS_GS   <- TWAS[keep_twas, ]
+	prop_mat  <- prop_mat[join_idx[keep_twas], , drop = FALSE]
+	rownames(prop_mat) <- TWAS_GS$FILE
+
 	gene_sets_clean <- keep_gs
-	using_prop <- TRUE
+	using_prop      <- TRUE
 }
 log_msg(length(gene_sets_clean), ' gene sets/properties retained after --min_Ngenes filter.\n', sep = '')
 
@@ -259,6 +312,24 @@ idx <- match(TWAS_GS$FILE, colnames(cor_block_all))
 cor_block_all <- cor_block_all[idx, idx]
 N_genes <- nrow(TWAS_GS)
 log_msg(N_genes, ' genes used after intersecting TWAS / cor matrix / gene sets.\n', sep = '')
+
+# Align prop_mat rows to TWAS_GS after the cor-matrix subset, then z-score in
+# place. Deferring scaling until now keeps the working matrix as small as
+# possible (rows = N_genes ≈ a few thousand, not the full prop file).
+if(using_prop){
+	prop_mat <- prop_mat[TWAS_GS$FILE, , drop = FALSE]
+	prop_unscaled <- prop_mat
+	col_means <- colMeans(prop_mat, na.rm = TRUE)
+	col_sds   <- sqrt(colSums((prop_mat - rep(col_means, each = N_genes))^2, na.rm = TRUE) / max(N_genes - 1L, 1L))
+	for(j in seq_len(ncol(prop_mat))){
+		if(!is.na(col_sds[j]) && col_sds[j] > 0){
+			prop_mat[, j] <- (prop_mat[, j] - col_means[j]) / col_sds[j]
+		} else {
+			prop_mat[, j] <- 0
+		}
+	}
+	prop_mat[is.na(prop_mat)] <- 0
+}
 
 # Recover the per-row block index for the subsetted K. If the precomputed file
 # carries one we use it (renumbered after subset); otherwise derive it from the
@@ -328,7 +399,7 @@ y_wh_r    <- y_wh - Q_null %*% crossprod(Q_null, y_wh)
 # 7. Whiten + residualise all gene-set vectors in one batched solve.
 # ---------------------------------------------------------------------------
 log_msg('Running vectorised GLS over ', length(gene_sets_clean), ' gene sets/properties... ', sep = '')
-Z_gs   <- as.matrix(TWAS_GS[, gene_sets_clean, drop = FALSE])
+Z_gs   <- if(using_prop) prop_mat else as.matrix(TWAS_GS[, gene_sets_clean, drop = FALSE])
 storage.mode(Z_gs) <- 'double'
 Z_wh   <- as.matrix(solve(chol_V, Z_gs, system = 'L'))
 Z_wh_r <- Z_wh - Q_null %*% crossprod(Q_null, Z_wh)
