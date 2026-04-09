@@ -210,60 +210,21 @@ if(!is.na(opt$gmt_file)){
 	gene_sets_clean <- keep_gs
 	using_prop <- FALSE
 } else {
-	# Load the prop file in column chunks via cut. Avoids fread's gzipped path
-	# segfaulting on very wide files (200k+ columns) and keeps peak memory bounded
-	# by never holding more than one chunk + the preallocated target matrix.
-	#
-	# If the file is gzipped, decompress once to a temp tsv first — otherwise
-	# every chunk would re-decompress the entire stream (108 × 18 GB = unworkable).
-	prop_path_raw <- opt$prop_file
-	tmp_prop      <- NULL
-	if(grepl('\\.gz$', prop_path_raw)){
-		tmp_prop <- tempfile(pattern = 'twas_gsea_prop_', fileext = '.tsv')
-		log_msg('Decompressing prop file to ', tmp_prop, ' ... ', sep = '')
-		# Use system2 with stdout= so R handles the redirect (no shell layer
-		# involved — earlier 'sh -c "zcat > tmp"' invocations were unreliable
-		# inside the snakemake-spawned R subshell).
-		decompress_status <- system2('gunzip', args = c('-c', prop_path_raw), stdout = tmp_prop)
-		if(decompress_status != 0) stop('Failed to decompress --prop_file (gunzip exit ', decompress_status, ').')
-		log_msg('done.\n')
-		prop_path <- tmp_prop
-	} else {
-		prop_path <- prop_path_raw
-	}
-	on.exit(if(!is.null(tmp_prop) && file.exists(tmp_prop)) unlink(tmp_prop), add = TRUE)
-
-	header  <- names(fread(cmd = paste0('head -1 ', shQuote(prop_path)), header = TRUE))
-	n_props <- length(header) - 1L
+	log_msg('Reading prop file... ')
+	prop_dt <- fread(opt$prop_file)
+	log_msg('done.\n')
+	n_props <- ncol(prop_dt) - 1L
 	log_msg('Gene property file: ', n_props, ' properties.\n', sep = '')
 
-	id_col   <- fread(cmd = paste0("cut -f1 ", shQuote(prop_path)), header = TRUE)[[1]]
+	id_col   <- prop_dt[[1]]
 	twas_ids <- if(is.na(opt$use_alt_id)) TWAS$entrezgene_id else TWAS$Alt_ID
 	keep_rows <- which(id_col %in% twas_ids)
 	if(length(keep_rows) == 0) stop('No overlap between TWAS gene IDs and --prop_file ID column.')
 	log_msg('  ', length(keep_rows), ' / ', length(id_col), ' prop rows overlap TWAS.\n', sep = '')
 
-	prop_mat <- matrix(0, nrow = length(keep_rows), ncol = n_props)
+	prop_mat <- as.matrix(prop_dt[keep_rows, -1, with = FALSE])
 	rownames(prop_mat) <- id_col[keep_rows]
-	colnames(prop_mat) <- header[-1]
-
-	chunk_cols <- 5000L
-	n_chunks   <- ceiling(n_props / chunk_cols)
-	chunk_idx  <- 0L
-	for(j_start in seq(2L, n_props + 1L, by = chunk_cols)){
-		j_end <- min(j_start + chunk_cols - 1L, n_props + 1L)
-		chunk_idx <- chunk_idx + 1L
-		log_msg('  reading prop columns ', j_start - 1L, '-', j_end - 1L,
-		        ' (chunk ', chunk_idx, '/', n_chunks, ')\n', sep = '')
-		chunk <- fread(cmd = paste0('cut -f', j_start, '-', j_end, ' ', shQuote(prop_path)), header = TRUE)
-		prop_mat[, (j_start - 1L):(j_end - 1L)] <- as.matrix(chunk)[keep_rows, , drop = FALSE]
-		rm(chunk); gc(verbose = FALSE)
-	}
-
-	if(!is.null(tmp_prop)){
-		unlink(tmp_prop)
-		tmp_prop <- NULL
-	}
+	rm(prop_dt); gc(verbose = FALSE)
 
 	prop_mat[!is.finite(prop_mat)] <- 0
 
