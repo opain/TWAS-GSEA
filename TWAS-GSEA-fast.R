@@ -265,6 +265,8 @@ if(!is.na(opt$gmt_file)){
 		tmp_prop <- NULL
 	}
 
+	prop_mat[!is.finite(prop_mat)] <- 0
+
 	nz_per_prop <- colSums(prop_mat != 0)
 	keep_idx    <- which(nz_per_prop >= opt$min_Ngenes)
 	if(length(keep_idx) == 0) stop('No prop columns retained after --min_Ngenes filter.')
