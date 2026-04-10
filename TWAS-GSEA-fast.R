@@ -285,7 +285,7 @@ log_msg(N_genes, ' genes used after intersecting TWAS / cor matrix / gene sets.\
 # possible (rows = N_genes ≈ a few thousand, not the full prop file).
 if(using_prop){
 	prop_mat <- prop_mat[TWAS_GS$FILE, , drop = FALSE]
-	prop_unscaled <- prop_mat
+	N_Mem_Avail_prop <- colSums(prop_mat != 0)
 	col_means <- colMeans(prop_mat, na.rm = TRUE)
 	col_sds   <- sqrt(colSums((prop_mat - rep(col_means, each = N_genes))^2, na.rm = TRUE) / max(N_genes - 1L, 1L))
 	for(j in seq_len(ncol(prop_mat))){
@@ -369,12 +369,13 @@ log_msg('Running vectorised GLS over ', length(gene_sets_clean), ' gene sets/pro
 Z_gs   <- if(using_prop) prop_mat else as.matrix(TWAS_GS[, gene_sets_clean, drop = FALSE])
 storage.mode(Z_gs) <- 'double'
 Z_wh   <- as.matrix(solve(chol_V, Z_gs, system = 'L'))
-Z_wh_r <- Z_wh - Q_null %*% crossprod(Q_null, Z_wh)
+rm(Z_gs, prop_mat); gc(verbose = FALSE)
+Z_wh   <- Z_wh - Q_null %*% crossprod(Q_null, Z_wh)
 
 # Whitened residuals are unit-variance by construction (V_hat absorbs the full
 # Var(y)), so SE = 1/sqrt(denom) — same as V1.2's --fast_competitive T path.
-denom    <- colSums(Z_wh_r^2)
-numer    <- drop(crossprod(Z_wh_r, y_wh_r))
+denom    <- colSums(Z_wh^2)
+numer    <- drop(crossprod(Z_wh, y_wh_r))
 beta_hat <- numer / denom
 SE_hat   <- 1 / sqrt(denom)
 t_stat   <- numer / sqrt(denom)
@@ -385,7 +386,7 @@ log_msg('Done.\n')
 # 7. Assemble + write results (column layout matches TWAS-GSEA.V1.2.R).
 # ---------------------------------------------------------------------------
 if(using_prop){
-	N_Mem_Avail <- colSums(prop_unscaled[TWAS_GS$FILE, gene_sets_clean, drop = FALSE] != 0)
+	N_Mem_Avail <- N_Mem_Avail_prop[gene_sets_clean]
 	Results <- data.frame(
 		GeneSet     = gene_sets_clean,
 		Estimate    = beta_hat,
