@@ -88,7 +88,7 @@ Produces `demo.competitive.txt` and `demo.log`.
 | `--twas_results` | required | TWAS results file (FUSION format or any file with `FILE`, `ID`, `TWAS.Z`, `TWAS.P`, `MODELCV.R2`). `.gz` allowed. |
 | `--input_CorMat` | required | `.CorMat.RDS` from `build_cor_matrix.R`. |
 | `--gmt_file` | NA | Gene-set file in `.gmt` format. Mutually exclusive with `--prop_file`. |
-| `--prop_file` | NA | Gene-property file (first column `ID`, then one numeric column per property). Mutually exclusive with `--gmt_file`. |
+| `--prop_file` | NA | Gene-property file (first column `ID`, then one numeric column per property; `.rds` files containing a numeric matrix with row names are also accepted). Mutually exclusive with `--gmt_file`. |
 | `--covar` | `none` | Comma-separated covariate columns from `--twas_results`, e.g. `NSNP,GeneLength`. |
 | `--use_alt_id` | NA | Alternative ID column in `--twas_results` to match against the gene-set / property file (e.g. `ID`). When unset, gene symbols → Entrez IDs are mapped via `--gene_id_map`. |
 | `--gene_id_map` | NA | Tab-delimited file with columns `external_gene_name`, `entrezgene_id`. Required when `--use_alt_id` is not set. A bundled GRCh37 copy is at [`data/gene_id_map.tsv`](data/gene_id_map.tsv). |
@@ -100,9 +100,10 @@ Produces `demo.competitive.txt` and `demo.log`.
 | `--allow_duplicate_ID` | `FALSE` | Keep multiple TWAS rows per gene; otherwise retain best `MODELCV.R2`. |
 | `--h_max` | `100` | Upper bound on the variance ratio h = σ²_u / σ²_e in the REML search. |
 | `--reml_tol` | `1e-6` | Convergence tolerance for the 1-D Brent search. |
+| `--twas_p_thresh` | `1` | Comma-separated TWAS p-value thresholds. The analysis is run separately on each subset of genes with `TWAS.P ≤ threshold`. `1` retains all genes (default behaviour). |
 | `--p_cor_method` | `fdr` | Multiple-testing correction (passed to `p.adjust`). |
 | `--n_cores` | `1` | Cores. |
-| `--output` | required | Output prefix. Writes `<output>.competitive.txt` and `<output>.log`. |
+| `--output` | required | Output prefix. Writes `<output>.competitive.txt` and `<output>.log`. When multiple `--twas_p_thresh` values are given, non-1 thresholds write `<output>.pT<value>.competitive.txt`. |
 
 ---
 
@@ -159,7 +160,7 @@ Standard `.gmt` file: tab-delimited, one row per set, first column = set name, s
 
 ### `--prop_file` (gene-property analysis)
 
-First column header `ID` (Entrez IDs), then one numeric column per property. The property is z-scored within `TWAS-GSEA-fast.R` before testing.
+Either a text file (first column header `ID` with Entrez IDs, then one numeric column per property) or an `.rds` file containing a numeric matrix with Entrez IDs as row names. Properties are z-scored within `TWAS-GSEA-fast.R` before testing.
 
 ### `--gene_id_map`
 
@@ -169,9 +170,9 @@ Two tab-delimited columns: `external_gene_name`, `entrezgene_id`. Used to map TW
 
 ## Output files
 
-### `<output>.competitive.txt`
+### `<output>.competitive.txt` / `<output>.pT<value>.competitive.txt`
 
-Space-delimited results of the competitive test:
+Space-delimited results of the competitive test. When `--twas_p_thresh` includes multiple values, threshold 1 writes `<output>.competitive.txt` and other thresholds write `<output>.pT<value>.competitive.txt` (e.g. `<output>.pT0.05.competitive.txt`).
 
 | Column | Meaning |
 |---|---|

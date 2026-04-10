@@ -57,6 +57,8 @@ option_list <- list(
 		help='Upper bound on the variance ratio h = sigma_u^2/sigma_e^2 in REML search [default 100]'),
 	make_option('--reml_tol', action='store', default=1e-6, type='numeric',
 		help='Tolerance for the 1-D Brent search in the REML fit [default 1e-6]'),
+	make_option('--twas_p_thresh', action='store', default='1', type='character',
+		help='Comma-separated TWAS p-value thresholds for subsetting genes; 1 = all genes [default 1]'),
 	make_option('--p_cor_method', action='store', default='fdr', type='character',
 		help='Multiple testing correction method (passed to p.adjust) [default fdr]'),
 	make_option('--n_cores', action='store', default=1, type='numeric',
@@ -76,6 +78,7 @@ if(dirname(opt$output) != '.') system(paste0('mkdir -p ', dirname(opt$output)))
 
 opt$covar             <- as.character(unlist(strsplit(opt$covar, ',')))
 opt$outlier_threshold <- as.numeric(unlist(strsplit(opt$outlier_threshold, ',')))
+opt$twas_p_thresh     <- sort(unique(as.numeric(unlist(strsplit(opt$twas_p_thresh, ',')))))
 
 LOG_FILE <- paste0(opt$output, '.log')
 log_msg  <- function(...) cat(..., file = LOG_FILE, append = TRUE)
@@ -199,15 +202,13 @@ if(!is.na(opt$gmt_file)){
 	names(gene_sets) <- gsub('[[:punct:]]', '.', names(gene_sets))
 	log_msg('Gene set file: ', length(gene_sets), ' sets.\n', sep = '')
 
-	mem_mat <- foreach(i = seq_along(gene_sets), .combine = cbind) %dopar% {
+	mem_mat_full <- foreach(i = seq_along(gene_sets), .combine = cbind) %dopar% {
 		if(is.na(opt$use_alt_id)) TWAS$entrezgene_id %in% as.character(unlist(gene_sets[i]))
 		else TWAS$Alt_ID %in% as.character(unlist(gene_sets[i]))
 	}
-	mem_mat <- as.matrix(mem_mat); colnames(mem_mat) <- names(gene_sets); storage.mode(mem_mat) <- 'double'
-	keep_gs <- colnames(mem_mat)[colSums(mem_mat) >= opt$min_Ngenes]
-	mem_mat <- mem_mat[, keep_gs, drop = FALSE]
-	TWAS_GS <- cbind(TWAS, as.data.frame(mem_mat))
-	gene_sets_clean <- keep_gs
+	mem_mat_full <- as.matrix(mem_mat_full); colnames(mem_mat_full) <- names(gene_sets); storage.mode(mem_mat_full) <- 'double'
+	rownames(mem_mat_full) <- TWAS$FILE
+	TWAS_GS_full <- TWAS
 	using_prop <- FALSE
 } else {
 	log_msg('Reading prop file... ')
@@ -232,27 +233,22 @@ if(!is.na(opt$gmt_file)){
 
 	prop_mat[!is.finite(prop_mat)] <- 0
 
-	nz_per_prop <- colSums(prop_mat != 0)
-	keep_idx    <- which(nz_per_prop >= opt$min_Ngenes)
-	if(length(keep_idx) == 0) stop('No prop columns retained after --min_Ngenes filter.')
-	prop_mat    <- prop_mat[, keep_idx, drop = FALSE]
-	keep_gs     <- colnames(prop_mat)
-
-	# TWAS_GS stays as the small TWAS data.frame; prop_mat lives separately and
-	# is kept aligned to TWAS_GS row-by-row through the cor-matrix subsetting.
+	# Join prop_mat rows to TWAS order; defer min_Ngenes filter and z-scoring
+	# to inside the threshold loop.
 	join_idx  <- match(twas_ids, rownames(prop_mat))
 	keep_twas <- !is.na(join_idx)
-	TWAS_GS   <- TWAS[keep_twas, ]
-	prop_mat  <- prop_mat[join_idx[keep_twas], , drop = FALSE]
-	rownames(prop_mat) <- TWAS_GS$FILE
+	TWAS_GS_full <- TWAS[keep_twas, ]
+	prop_mat_raw <- prop_mat[join_idx[keep_twas], , drop = FALSE]
+	rownames(prop_mat_raw) <- TWAS_GS_full$FILE
 
-	gene_sets_clean <- keep_gs
-	using_prop      <- TRUE
+	using_prop <- TRUE
 }
-log_msg(length(gene_sets_clean), ' gene sets/properties retained after --min_Ngenes filter.\n', sep = '')
+if(!using_prop){
+	log_msg(ncol(mem_mat_full), ' gene sets loaded.\n', sep = '')
+}
 
 if(opt$covar[1] != 'none'){
-	missing_covars <- opt$covar[!(opt$covar %in% names(TWAS_GS))]
+	missing_covars <- opt$covar[!(opt$covar %in% names(TWAS_GS_full))]
 	if(length(missing_covars) > 0) stop('--covar not in TWAS data: ', paste(missing_covars, collapse = ', '))
 }
 
@@ -271,48 +267,90 @@ if(is.list(cor_obj) && !is.null(cor_obj$K)){
 }
 log_msg('Done (', dim(cor_block_all)[1], ' x ', dim(cor_block_all)[2], ').\n', sep = '')
 
-genes_overlap <- intersect(TWAS_GS$FILE, colnames(cor_block_all))
-if(length(genes_overlap) == 0) stop('No overlap between TWAS FILE column and cor matrix rows.')
-TWAS_GS <- TWAS_GS[TWAS_GS$FILE %in% genes_overlap, ]
-TWAS_GS <- TWAS_GS[order(match(TWAS_GS$FILE, colnames(cor_block_all))), ]
-idx <- match(TWAS_GS$FILE, colnames(cor_block_all))
-cor_block_all <- cor_block_all[idx, idx]
-N_genes <- nrow(TWAS_GS)
-log_msg(N_genes, ' genes used after intersecting TWAS / cor matrix / gene sets.\n', sep = '')
+# ---------------------------------------------------------------------------
+# 3b. Loop over TWAS p-value thresholds.
+# ---------------------------------------------------------------------------
+for(pT in opt$twas_p_thresh){
 
-# Align prop_mat rows to TWAS_GS after the cor-matrix subset, then z-score in
-# place. Deferring scaling until now keeps the working matrix as small as
-# possible (rows = N_genes ≈ a few thousand, not the full prop file).
-if(using_prop){
-	prop_mat <- prop_mat[TWAS_GS$FILE, , drop = FALSE]
-	N_Mem_Avail_prop <- colSums(prop_mat != 0)
-	col_means <- colMeans(prop_mat, na.rm = TRUE)
-	col_sds   <- sqrt(colSums((prop_mat - rep(col_means, each = N_genes))^2, na.rm = TRUE) / max(N_genes - 1L, 1L))
-	for(j in seq_len(ncol(prop_mat))){
-		if(!is.na(col_sds[j]) && col_sds[j] > 0){
-			prop_mat[, j] <- (prop_mat[, j] - col_means[j]) / col_sds[j]
-		} else {
-			prop_mat[, j] <- 0
-		}
-	}
-	prop_mat[is.na(prop_mat)] <- 0
+log_msg('\n--- TWAS p-value threshold = ', pT, ' ---\n', sep = '')
+
+# Subset genes by TWAS p-value.
+if(pT < 1){
+	TWAS_GS_t <- TWAS_GS_full[TWAS_GS_full$TWAS.P <= pT, ]
+} else {
+	TWAS_GS_t <- TWAS_GS_full
+}
+log_msg(nrow(TWAS_GS_t), ' genes with TWAS.P <= ', pT, '.\n', sep = '')
+if(nrow(TWAS_GS_t) < opt$min_Ngenes){
+	log_msg('  Fewer than --min_Ngenes (', opt$min_Ngenes, '); skipping threshold.\n', sep = '')
+	next
 }
 
-# Recover the per-row block index for the subsetted K. If the precomputed file
-# carries one we use it (renumbered after subset); otherwise derive it from the
-# sparsity pattern via connected components.
+# Re-apply min_Ngenes filter on the threshold-subset of genes.
+if(!using_prop){
+	mem_mat_t <- mem_mat_full[TWAS_GS_t$FILE, , drop = FALSE]
+	keep_gs   <- colnames(mem_mat_t)[colSums(mem_mat_t) >= opt$min_Ngenes]
+	if(length(keep_gs) == 0){
+		log_msg('  No gene sets with >= ', opt$min_Ngenes, ' genes; skipping threshold.\n', sep = '')
+		next
+	}
+	mem_mat_t <- mem_mat_t[, keep_gs, drop = FALSE]
+	TWAS_GS_t <- cbind(TWAS_GS_t, as.data.frame(mem_mat_t))
+	gene_sets_clean <- keep_gs
+} else {
+	prop_mat_t <- prop_mat_raw[TWAS_GS_t$FILE, , drop = FALSE]
+	nz_per_prop <- colSums(prop_mat_t != 0)
+	keep_gs     <- colnames(prop_mat_t)[nz_per_prop >= opt$min_Ngenes]
+	if(length(keep_gs) == 0){
+		log_msg('  No properties with >= ', opt$min_Ngenes, ' non-zero genes; skipping threshold.\n', sep = '')
+		next
+	}
+	prop_mat_t <- prop_mat_t[, keep_gs, drop = FALSE]
+	gene_sets_clean <- keep_gs
+}
+log_msg(length(gene_sets_clean), ' gene sets/properties retained after --min_Ngenes filter.\n', sep = '')
+
+# Intersect with correlation matrix.
+genes_overlap <- intersect(TWAS_GS_t$FILE, colnames(cor_block_all))
+if(length(genes_overlap) < opt$min_Ngenes){
+	log_msg('  Fewer than --min_Ngenes genes overlap cor matrix; skipping threshold.\n')
+	next
+}
+TWAS_GS_t <- TWAS_GS_t[TWAS_GS_t$FILE %in% genes_overlap, ]
+TWAS_GS_t <- TWAS_GS_t[order(match(TWAS_GS_t$FILE, colnames(cor_block_all))), ]
+idx <- match(TWAS_GS_t$FILE, colnames(cor_block_all))
+cor_block_t <- cor_block_all[idx, idx]
+N_genes <- nrow(TWAS_GS_t)
+log_msg(N_genes, ' genes used after intersecting TWAS / cor matrix / gene sets.\n', sep = '')
+
+# Align and z-score prop_mat for this threshold.
+if(using_prop){
+	prop_mat_t <- prop_mat_t[TWAS_GS_t$FILE, , drop = FALSE]
+	N_Mem_Avail_prop <- colSums(prop_mat_t != 0)
+	col_means <- colMeans(prop_mat_t, na.rm = TRUE)
+	col_sds   <- sqrt(colSums((prop_mat_t - rep(col_means, each = N_genes))^2, na.rm = TRUE) / max(N_genes - 1L, 1L))
+	for(j in seq_len(ncol(prop_mat_t))){
+		if(!is.na(col_sds[j]) && col_sds[j] > 0){
+			prop_mat_t[, j] <- (prop_mat_t[, j] - col_means[j]) / col_sds[j]
+		} else {
+			prop_mat_t[, j] <- 0
+		}
+	}
+	prop_mat_t[is.na(prop_mat_t)] <- 0
+}
+
+# Recover the per-row block index for the subsetted K.
 if(!is.null(block_index_full)){
-	block_index <- block_index_full[match(TWAS_GS$FILE, names(block_index_full))]
+	block_index <- block_index_full[match(TWAS_GS_t$FILE, names(block_index_full))]
 	block_index <- as.integer(factor(block_index))   # contiguous 1..B after subset
 } else {
-	# Derive blocks as connected components of K's non-zero pattern.
-	K_pat <- as(cor_block_all != 0, 'lgCMatrix')
+	K_pat <- as(cor_block_t != 0, 'lgCMatrix')
 	parent <- seq_len(N_genes)
 	find <- function(i){ while(parent[i] != i){ parent[i] <<- parent[parent[i]]; i <- parent[i] }; i }
 	tri <- which(K_pat & upper.tri(K_pat), arr.ind = TRUE)
 	for(k in seq_len(nrow(tri))){
 		ra <- find(tri[k, 1]); rb <- find(tri[k, 2])
-		if(ra != rb) parent[ra] <<- rb
+		if(ra != rb) parent[ra] <- rb
 	}
 	roots <- vapply(seq_len(N_genes), find, integer(1))
 	block_index <- as.integer(factor(roots))
@@ -320,18 +358,17 @@ if(!is.null(block_index_full)){
 B <- max(block_index)
 log_msg('Cor matrix decomposes into ', B, ' independent blocks.\n', sep = '')
 
-# Per-block dense submatrices for the REML fitter.
 K_blocks <- lapply(seq_len(B), function(b){
 	idx_b <- which(block_index == b)
-	as.matrix(cor_block_all[idx_b, idx_b, drop = FALSE])
+	as.matrix(cor_block_t[idx_b, idx_b, drop = FALSE])
 })
 
 # ---------------------------------------------------------------------------
 # 4. REML fit of (sigma_u^2, sigma_e^2) on the null model.
 # ---------------------------------------------------------------------------
-y <- TWAS_GS$ZSCORE
+y <- TWAS_GS_t$ZSCORE
 if(opt$covar[1] != 'none'){
-	X_null <- cbind(1, as.matrix(TWAS_GS[, opt$covar, drop = FALSE]))
+	X_null <- cbind(1, as.matrix(TWAS_GS_t[, opt$covar, drop = FALSE]))
 } else {
 	X_null <- matrix(1, nrow = N_genes, ncol = 1)
 }
@@ -350,7 +387,7 @@ log_msg(sprintf('  sigma_u^2 = %.6f   sigma_e^2 = %.6f   h_hat = %.6f\n',
 # 5. Build V_hat = sigma_u^2 K + sigma_e^2 I and sparse Cholesky once.
 # ---------------------------------------------------------------------------
 log_msg('Cholesky-decomposing V_hat... ')
-V_hat  <- reml$sigma_u2 * cor_block_all + reml$sigma_e2 * Diagonal(N_genes)
+V_hat  <- reml$sigma_u2 * cor_block_t + reml$sigma_e2 * Diagonal(N_genes)
 chol_V <- Cholesky(forceSymmetric(V_hat), perm = FALSE, LDL = FALSE)
 log_msg('Done.\n')
 
@@ -366,10 +403,10 @@ y_wh_r    <- y_wh - Q_null %*% crossprod(Q_null, y_wh)
 # 7. Whiten + residualise all gene-set vectors in one batched solve.
 # ---------------------------------------------------------------------------
 log_msg('Running vectorised GLS over ', length(gene_sets_clean), ' gene sets/properties... ', sep = '')
-Z_gs   <- if(using_prop) prop_mat else as.matrix(TWAS_GS[, gene_sets_clean, drop = FALSE])
+Z_gs   <- if(using_prop) prop_mat_t else as.matrix(TWAS_GS_t[, gene_sets_clean, drop = FALSE])
 storage.mode(Z_gs) <- 'double'
 Z_wh   <- as.matrix(solve(chol_V, Z_gs, system = 'L'))
-rm(Z_gs, prop_mat); gc(verbose = FALSE)
+rm(Z_gs); gc(verbose = FALSE)
 Z_wh   <- Z_wh - Q_null %*% crossprod(Q_null, Z_wh)
 
 # Whitened residuals are unit-variance by construction (V_hat absorbs the full
@@ -383,7 +420,7 @@ p_val    <- compute_pval(t_stat, opt$two_sided)
 log_msg('Done.\n')
 
 # ---------------------------------------------------------------------------
-# 7. Assemble + write results (column layout matches TWAS-GSEA.V1.2.R).
+# 8. Assemble + write results (column layout matches TWAS-GSEA.V1.2.R).
 # ---------------------------------------------------------------------------
 if(using_prop){
 	N_Mem_Avail <- N_Mem_Avail_prop[gene_sets_clean]
@@ -396,7 +433,7 @@ if(using_prop){
 		P           = p_val,
 		stringsAsFactors = FALSE)
 } else {
-	N_Mem_Avail <- colSums(TWAS_GS[, gene_sets_clean, drop = FALSE] != 0)
+	N_Mem_Avail <- colSums(TWAS_GS_t[, gene_sets_clean, drop = FALSE] != 0)
 	N_Mem       <- vapply(gene_sets_clean, function(gs) length(gene_sets[[gs]]), integer(1))
 	Results <- data.frame(
 		GeneSet     = gene_sets_clean,
@@ -411,9 +448,13 @@ if(using_prop){
 Results <- Results[is.finite(Results$T), ]
 Results$P.CORR <- p.adjust(Results$P, method = opt$p_cor_method)
 Results <- Results[order(Results$P), ]
-write.table(Results, paste0(opt$output, '.competitive.txt'),
-            col.names = TRUE, row.names = FALSE, quote = FALSE)
+
+out_suffix <- if(pT == 1) '' else paste0('.pT', pT)
+out_file   <- paste0(opt$output, out_suffix, '.competitive.txt')
+write.table(Results, out_file, col.names = TRUE, row.names = FALSE, quote = FALSE)
+log_msg('Wrote ', out_file, ' (', nrow(Results), ' rows).\n', sep = '')
+
+}  # end for(pT ...)
 
 end.time <- Sys.time()
-log_msg('Wrote ', opt$output, '.competitive.txt (', nrow(Results), ' rows).\n', sep = '')
-log_msg('Finished at ', as.character(end.time), ' (elapsed ', round(as.numeric(difftime(end.time, start.time, units = 'secs')), 1), 's)\n', sep = '')
+log_msg('\nFinished at ', as.character(end.time), ' (elapsed ', round(as.numeric(difftime(end.time, start.time, units = 'secs')), 1), 's)\n', sep = '')
