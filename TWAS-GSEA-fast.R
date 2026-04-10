@@ -210,30 +210,25 @@ if(!is.na(opt$gmt_file)){
 	gene_sets_clean <- keep_gs
 	using_prop <- FALSE
 } else {
-	twas_ids <- if(is.na(opt$use_alt_id)) TWAS$entrezgene_id else TWAS$Alt_ID
-
-	# Filter prop file rows at the shell level so R only loads genes present in
-	# the TWAS results. This avoids holding the full (10k x 215k) table in memory.
-	id_file <- tempfile()
-	writeLines(twas_ids, id_file)
-	read_cmd <- if(grepl('\\.gz$', opt$prop_file)) 'zcat' else 'cat'
-	log_msg('Reading prop file (filtering to TWAS genes)... ')
-	prop_dt <- fread(cmd = paste0(
-		read_cmd, ' ', shQuote(opt$prop_file),
-		" | awk -F'\\t' 'NR==FNR{ids[$1];next} FNR==1||($1 in ids)' ",
-		shQuote(id_file), ' -'))
-	unlink(id_file)
+	log_msg('Reading prop file... ')
+	if(grepl('\\.rds$', opt$prop_file, ignore.case = TRUE)){
+		prop_mat <- readRDS(opt$prop_file)
+	} else {
+		prop_dt <- fread(opt$prop_file)
+		id_col  <- prop_dt[[1]]
+		prop_mat <- as.matrix(prop_dt[, -1, with = FALSE])
+		rownames(prop_mat) <- id_col
+		rm(prop_dt); gc(verbose = FALSE)
+	}
 	log_msg('done.\n')
+	n_props <- ncol(prop_mat)
+	log_msg('Gene property file: ', n_props, ' properties.\n', sep = '')
 
-	n_props <- ncol(prop_dt) - 1L
-	if(nrow(prop_dt) == 0) stop('No overlap between TWAS gene IDs and --prop_file ID column.')
-	log_msg('Gene property file: ', n_props, ' properties, ',
-	        nrow(prop_dt), ' genes overlap TWAS.\n', sep = '')
-
-	id_col <- prop_dt[[1]]
-	prop_mat <- as.matrix(prop_dt[, -1, with = FALSE])
-	rownames(prop_mat) <- id_col
-	rm(prop_dt); gc(verbose = FALSE)
+	twas_ids  <- if(is.na(opt$use_alt_id)) TWAS$entrezgene_id else TWAS$Alt_ID
+	keep_rows <- which(rownames(prop_mat) %in% twas_ids)
+	if(length(keep_rows) == 0) stop('No overlap between TWAS gene IDs and --prop_file ID column.')
+	log_msg('  ', length(keep_rows), ' / ', nrow(prop_mat), ' prop rows overlap TWAS.\n', sep = '')
+	prop_mat <- prop_mat[keep_rows, , drop = FALSE]
 
 	prop_mat[!is.finite(prop_mat)] <- 0
 
