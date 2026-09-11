@@ -1,0 +1,100 @@
+scenario_id	arm	mode	two_sided	cor_matrix	outlier_lo	outlier_hi	min_Ngenes	injection_type	feature_source	feature_alt_id	target_size	Delta	rho	pi_pos	sparsity	sigma_obs	beta	signature_seed	n_reps	notes
+t1e_cmap_a375_full_mag	mag_probit_absK	probit	FALSE	abs	-3	6	2	null	cmap_a375_full	Symbol									1000	T1E null: magnitude/probit
+t1e_cmap_a375_full_dir2s_abs	dir2s_absK	directional	TRUE	abs	-6	6	2	null	cmap_a375_full	Symbol									1000	T1E null: directional two-sided, abs-K
+t1e_cmap_a375_full_dir2s_signed	dir2s_signedK	directional	TRUE	signed	-6	6	2	null	cmap_a375_full	Symbol									1000	T1E null: directional two-sided, signed-K
+t1e_ternary_full_mag	mag_probit_absK	probit	FALSE	abs	-3	6	2	null	ternary_full	Symbol									1000	T1E null: magnitude/probit
+t1e_ternary_full_dir2s_abs	dir2s_absK	directional	TRUE	abs	-6	6	2	null	ternary_full	Symbol									1000	T1E null: directional two-sided, abs-K
+t1e_ternary_full_dir2s_signed	dir2s_signedK	directional	TRUE	signed	-6	6	2	null	ternary_full	Symbol									1000	T1E null: directional two-sided, signed-K
+t1e_gmt_mag	mag_probit_absK	probit	FALSE	abs	-3	6	2	null	gmt_c2_full	Entrez									500	T1E null: gmt set-based, magnitude/probit
+t1e_gmt_dir1s_abs	dir1s_absK	directional	FALSE	abs	-6	6	2	null	gmt_c2_full	Entrez									500	T1E null: gmt set-based, directional one-sided, abs-K
+t1e_gmt_dir2s_signed	dir2s_signedK	directional	TRUE	signed	-6	6	2	null	gmt_c2_full	Entrez									500	T1E null: gmt set-based, directional two-sided, signed-K
+dh_sig_cont_dir2s_abs_bm0p40	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_cont mode=dir2s K=abs beta=-0.40
+dh_sig_cont_dir2s_abs_bm0p20	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_cont mode=dir2s K=abs beta=-0.20
+dh_sig_cont_dir2s_abs_b0p00	dir2s_absK	directional	TRUE	abs	-6	6	2	null	sig_cont	AltID_ENSG					0.05	1	0	111	300	DH form=sig_cont mode=dir2s K=abs beta=0.00
+dh_sig_cont_dir2s_abs_b0p20	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_cont mode=dir2s K=abs beta=0.20
+dh_sig_cont_dir2s_abs_b0p40	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_cont mode=dir2s K=abs beta=0.40
+dh_sig_cont_dir2s_signed_bm0p40	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_cont mode=dir2s K=signed beta=-0.40
+dh_sig_cont_dir2s_signed_bm0p20	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_cont mode=dir2s K=signed beta=-0.20
+dh_sig_cont_dir2s_signed_b0p00	dir2s_signedK	directional	TRUE	signed	-6	6	2	null	sig_cont	AltID_ENSG					0.05	1	0	111	300	DH form=sig_cont mode=dir2s K=signed beta=0.00
+dh_sig_cont_dir2s_signed_b0p20	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_cont mode=dir2s K=signed beta=0.20
+dh_sig_cont_dir2s_signed_b0p40	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_cont mode=dir2s K=signed beta=0.40
+dh_sig_cont_dir1s_abs_bm0p40	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_cont mode=dir1s K=abs beta=-0.40
+dh_sig_cont_dir1s_abs_bm0p20	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_cont mode=dir1s K=abs beta=-0.20
+dh_sig_cont_dir1s_abs_b0p00	dir1s_absK	directional	FALSE	abs	-6	6	2	null	sig_cont	AltID_ENSG					0.05	1	0	111	300	DH form=sig_cont mode=dir1s K=abs beta=0.00
+dh_sig_cont_dir1s_abs_b0p20	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_cont mode=dir1s K=abs beta=0.20
+dh_sig_cont_dir1s_abs_b0p40	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_cont mode=dir1s K=abs beta=0.40
+dh_sig_cont_dir1s_signed_bm0p40	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_cont mode=dir1s K=signed beta=-0.40
+dh_sig_cont_dir1s_signed_bm0p20	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_cont mode=dir1s K=signed beta=-0.20
+dh_sig_cont_dir1s_signed_b0p00	dir1s_signedK	directional	FALSE	signed	-6	6	2	null	sig_cont	AltID_ENSG					0.05	1	0	111	300	DH form=sig_cont mode=dir1s K=signed beta=0.00
+dh_sig_cont_dir1s_signed_b0p20	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_cont mode=dir1s K=signed beta=0.20
+dh_sig_cont_dir1s_signed_b0p40	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_cont mode=dir1s K=signed beta=0.40
+dh_sig_cont_magnitude_abs_bm0p40	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_cont mode=magnitude K=abs beta=-0.40
+dh_sig_cont_magnitude_abs_bm0p20	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_cont mode=magnitude K=abs beta=-0.20
+dh_sig_cont_magnitude_abs_b0p00	magnitude_absK	probit	FALSE	abs	-3	6	2	null	sig_cont	AltID_ENSG					0.05	1	0	111	300	DH form=sig_cont mode=magnitude K=abs beta=0.00
+dh_sig_cont_magnitude_abs_b0p20	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_cont mode=magnitude K=abs beta=0.20
+dh_sig_cont_magnitude_abs_b0p40	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_cont mode=magnitude K=abs beta=0.40
+dh_sig_cont_magnitude_signed_bm0p40	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_cont mode=magnitude K=signed beta=-0.40
+dh_sig_cont_magnitude_signed_bm0p20	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_cont mode=magnitude K=signed beta=-0.20
+dh_sig_cont_magnitude_signed_b0p00	magnitude_signedK	probit	FALSE	signed	-3	6	2	null	sig_cont	AltID_ENSG					0.05	1	0	111	300	DH form=sig_cont mode=magnitude K=signed beta=0.00
+dh_sig_cont_magnitude_signed_b0p20	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_cont mode=magnitude K=signed beta=0.20
+dh_sig_cont_magnitude_signed_b0p40	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_cont	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_cont mode=magnitude K=signed beta=0.40
+dh_sig_tern_dir2s_abs_bm0p40	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_tern mode=dir2s K=abs beta=-0.40
+dh_sig_tern_dir2s_abs_bm0p20	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_tern mode=dir2s K=abs beta=-0.20
+dh_sig_tern_dir2s_abs_b0p00	dir2s_absK	directional	TRUE	abs	-6	6	2	null	sig_tern	AltID_ENSG					0.05	1	0	111	300	DH form=sig_tern mode=dir2s K=abs beta=0.00
+dh_sig_tern_dir2s_abs_b0p20	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_tern mode=dir2s K=abs beta=0.20
+dh_sig_tern_dir2s_abs_b0p40	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_tern mode=dir2s K=abs beta=0.40
+dh_sig_tern_dir2s_signed_bm0p40	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_tern mode=dir2s K=signed beta=-0.40
+dh_sig_tern_dir2s_signed_bm0p20	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_tern mode=dir2s K=signed beta=-0.20
+dh_sig_tern_dir2s_signed_b0p00	dir2s_signedK	directional	TRUE	signed	-6	6	2	null	sig_tern	AltID_ENSG					0.05	1	0	111	300	DH form=sig_tern mode=dir2s K=signed beta=0.00
+dh_sig_tern_dir2s_signed_b0p20	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_tern mode=dir2s K=signed beta=0.20
+dh_sig_tern_dir2s_signed_b0p40	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_tern mode=dir2s K=signed beta=0.40
+dh_sig_tern_dir1s_abs_bm0p40	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_tern mode=dir1s K=abs beta=-0.40
+dh_sig_tern_dir1s_abs_bm0p20	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_tern mode=dir1s K=abs beta=-0.20
+dh_sig_tern_dir1s_abs_b0p00	dir1s_absK	directional	FALSE	abs	-6	6	2	null	sig_tern	AltID_ENSG					0.05	1	0	111	300	DH form=sig_tern mode=dir1s K=abs beta=0.00
+dh_sig_tern_dir1s_abs_b0p20	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_tern mode=dir1s K=abs beta=0.20
+dh_sig_tern_dir1s_abs_b0p40	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_tern mode=dir1s K=abs beta=0.40
+dh_sig_tern_dir1s_signed_bm0p40	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_tern mode=dir1s K=signed beta=-0.40
+dh_sig_tern_dir1s_signed_bm0p20	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_tern mode=dir1s K=signed beta=-0.20
+dh_sig_tern_dir1s_signed_b0p00	dir1s_signedK	directional	FALSE	signed	-6	6	2	null	sig_tern	AltID_ENSG					0.05	1	0	111	300	DH form=sig_tern mode=dir1s K=signed beta=0.00
+dh_sig_tern_dir1s_signed_b0p20	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_tern mode=dir1s K=signed beta=0.20
+dh_sig_tern_dir1s_signed_b0p40	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_tern mode=dir1s K=signed beta=0.40
+dh_sig_tern_magnitude_abs_bm0p40	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_tern mode=magnitude K=abs beta=-0.40
+dh_sig_tern_magnitude_abs_bm0p20	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_tern mode=magnitude K=abs beta=-0.20
+dh_sig_tern_magnitude_abs_b0p00	magnitude_absK	probit	FALSE	abs	-3	6	2	null	sig_tern	AltID_ENSG					0.05	1	0	111	300	DH form=sig_tern mode=magnitude K=abs beta=0.00
+dh_sig_tern_magnitude_abs_b0p20	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_tern mode=magnitude K=abs beta=0.20
+dh_sig_tern_magnitude_abs_b0p40	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_tern mode=magnitude K=abs beta=0.40
+dh_sig_tern_magnitude_signed_bm0p40	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_tern mode=magnitude K=signed beta=-0.40
+dh_sig_tern_magnitude_signed_bm0p20	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_tern mode=magnitude K=signed beta=-0.20
+dh_sig_tern_magnitude_signed_b0p00	magnitude_signedK	probit	FALSE	signed	-3	6	2	null	sig_tern	AltID_ENSG					0.05	1	0	111	300	DH form=sig_tern mode=magnitude K=signed beta=0.00
+dh_sig_tern_magnitude_signed_b0p20	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_tern mode=magnitude K=signed beta=0.20
+dh_sig_tern_magnitude_signed_b0p40	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_tern	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_tern mode=magnitude K=signed beta=0.40
+dh_sig_bin_dir2s_abs_bm0p40	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_bin mode=dir2s K=abs beta=-0.40
+dh_sig_bin_dir2s_abs_bm0p20	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_bin mode=dir2s K=abs beta=-0.20
+dh_sig_bin_dir2s_abs_b0p00	dir2s_absK	directional	TRUE	abs	-6	6	2	null	sig_bin	AltID_ENSG					0.05	1	0	111	300	DH form=sig_bin mode=dir2s K=abs beta=0.00
+dh_sig_bin_dir2s_abs_b0p20	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_bin mode=dir2s K=abs beta=0.20
+dh_sig_bin_dir2s_abs_b0p40	dir2s_absK	directional	TRUE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_bin mode=dir2s K=abs beta=0.40
+dh_sig_bin_dir2s_signed_bm0p40	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_bin mode=dir2s K=signed beta=-0.40
+dh_sig_bin_dir2s_signed_bm0p20	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_bin mode=dir2s K=signed beta=-0.20
+dh_sig_bin_dir2s_signed_b0p00	dir2s_signedK	directional	TRUE	signed	-6	6	2	null	sig_bin	AltID_ENSG					0.05	1	0	111	300	DH form=sig_bin mode=dir2s K=signed beta=0.00
+dh_sig_bin_dir2s_signed_b0p20	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_bin mode=dir2s K=signed beta=0.20
+dh_sig_bin_dir2s_signed_b0p40	dir2s_signedK	directional	TRUE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_bin mode=dir2s K=signed beta=0.40
+dh_sig_bin_dir1s_abs_bm0p40	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_bin mode=dir1s K=abs beta=-0.40
+dh_sig_bin_dir1s_abs_bm0p20	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_bin mode=dir1s K=abs beta=-0.20
+dh_sig_bin_dir1s_abs_b0p00	dir1s_absK	directional	FALSE	abs	-6	6	2	null	sig_bin	AltID_ENSG					0.05	1	0	111	300	DH form=sig_bin mode=dir1s K=abs beta=0.00
+dh_sig_bin_dir1s_abs_b0p20	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_bin mode=dir1s K=abs beta=0.20
+dh_sig_bin_dir1s_abs_b0p40	dir1s_absK	directional	FALSE	abs	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_bin mode=dir1s K=abs beta=0.40
+dh_sig_bin_dir1s_signed_bm0p40	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_bin mode=dir1s K=signed beta=-0.40
+dh_sig_bin_dir1s_signed_bm0p20	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_bin mode=dir1s K=signed beta=-0.20
+dh_sig_bin_dir1s_signed_b0p00	dir1s_signedK	directional	FALSE	signed	-6	6	2	null	sig_bin	AltID_ENSG					0.05	1	0	111	300	DH form=sig_bin mode=dir1s K=signed beta=0.00
+dh_sig_bin_dir1s_signed_b0p20	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_bin mode=dir1s K=signed beta=0.20
+dh_sig_bin_dir1s_signed_b0p40	dir1s_signedK	directional	FALSE	signed	-6	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_bin mode=dir1s K=signed beta=0.40
+dh_sig_bin_magnitude_abs_bm0p40	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_bin mode=magnitude K=abs beta=-0.40
+dh_sig_bin_magnitude_abs_bm0p20	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_bin mode=magnitude K=abs beta=-0.20
+dh_sig_bin_magnitude_abs_b0p00	magnitude_absK	probit	FALSE	abs	-3	6	2	null	sig_bin	AltID_ENSG					0.05	1	0	111	300	DH form=sig_bin mode=magnitude K=abs beta=0.00
+dh_sig_bin_magnitude_abs_b0p20	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_bin mode=magnitude K=abs beta=0.20
+dh_sig_bin_magnitude_abs_b0p40	magnitude_absK	probit	FALSE	abs	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_bin mode=magnitude K=abs beta=0.40
+dh_sig_bin_magnitude_signed_bm0p40	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.4	111	300	DH form=sig_bin mode=magnitude K=signed beta=-0.40
+dh_sig_bin_magnitude_signed_bm0p20	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	-0.2	111	300	DH form=sig_bin mode=magnitude K=signed beta=-0.20
+dh_sig_bin_magnitude_signed_b0p00	magnitude_signedK	probit	FALSE	signed	-3	6	2	null	sig_bin	AltID_ENSG					0.05	1	0	111	300	DH form=sig_bin mode=magnitude K=signed beta=0.00
+dh_sig_bin_magnitude_signed_b0p20	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.2	111	300	DH form=sig_bin mode=magnitude K=signed beta=0.20
+dh_sig_bin_magnitude_signed_b0p40	magnitude_signedK	probit	FALSE	signed	-3	6	2	property_random	sig_bin	AltID_ENSG					0.05	1	0.4	111	300	DH form=sig_bin mode=magnitude K=signed beta=0.40
