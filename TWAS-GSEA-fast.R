@@ -64,7 +64,9 @@ option_list <- list(
 	make_option('--n_cores', action='store', default=1, type='numeric',
 		help='Cores [default 1]'),
 	make_option('--output', action='store', default=NA, type='character',
-		help='Output prefix; writes <output>.competitive.txt and <output>.log [required]')
+		help='Output prefix; writes <output>.competitive.txt and <output>.log [required]'),
+	make_option('--drug_corr_out', action='store', default=NA, type='character',
+		help='Optional .rds path. If set, also writes the gene-set x gene-set correlation matrix of the per-set statistics (cov2cor of the whitened, residualised membership) - i.e. the exact null correlation between the per-set T. Used downstream for a GLS test of groups of gene sets (e.g. ATC classes of drugs). Additive; no effect unless set.')
 )
 opt <- parse_args(OptionParser(option_list = option_list))
 
@@ -405,9 +407,18 @@ y_wh_r    <- y_wh - Q_null %*% crossprod(Q_null, y_wh)
 log_msg('Running vectorised GLS over ', length(gene_sets_clean), ' gene sets/properties... ', sep = '')
 Z_gs   <- if(using_prop) prop_mat_t else as.matrix(TWAS_GS_t[, gene_sets_clean, drop = FALSE])
 storage.mode(Z_gs) <- 'double'
+.set_names <- colnames(Z_gs)
 Z_wh   <- as.matrix(solve(chol_V, Z_gs, system = 'L'))
 rm(Z_gs); gc(verbose = FALSE)
 Z_wh   <- Z_wh - Q_null %*% crossprod(Q_null, Z_wh)
+# Optional: dump the gene-set x gene-set correlation of the per-set statistics
+# (cov2cor(Z_wh' Z_wh) = the exact null correlation of the per-set T), for a
+# downstream GLS test of groups of gene sets. Additive; only when --drug_corr_out set.
+if(!is.na(opt$drug_corr_out)){
+  .DC <- cov2cor(crossprod(Z_wh)); dimnames(.DC) <- list(.set_names, .set_names)
+  saveRDS(.DC, opt$drug_corr_out)
+  log_msg('Wrote gene-set correlation matrix (', nrow(.DC), 'x', nrow(.DC), ') to ', opt$drug_corr_out, '\n', sep = '')
+}
 
 # Whitened residuals are unit-variance by construction (V_hat absorbs the full
 # Var(y)), so SE = 1/sqrt(denom) — same as V1.2's --fast_competitive T path.
