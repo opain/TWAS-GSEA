@@ -1,0 +1,497 @@
+---
+title: "TWAS-GSEA-fast Tier-A calibration & power study"
+author: "sim/ harness"
+date: "2026-09-11"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    df_print: kable
+    theme: readable
+---
+
+
+
+# Introduction
+
+`TWAS-GSEA-fast.R` (branch `optimisation`) performs competitive gene-set / gene-property
+enrichment on TWAS results. The statistical model is a two-variance-component LMM
+
+$$ y = X\beta + g + e, \qquad g \sim \mathcal{N}(0, \sigma_u^2 K), \qquad e \sim \mathcal{N}(0, \sigma_e^2 I) $$
+
+where $K$ is the block-diagonal predicted-expression correlation matrix produced by
+`build_cor_matrix.R`. `K` is currently constructed as `abs(WGCNA::cor(...))` (line 40 of
+`R/build_cor_matrix_helper.R`) — signed correlations are collapsed to magnitudes. The
+question this study asks is: **is the abs-K default correctly calibrated, and does replacing
+it with a signed-K variant improve power on directional properties without breaking Type-I
+error?**
+
+To answer that we need a simulator that
+
+1. draws TWAS Z under a realistic block-diagonal covariance,
+2. supports null (mu = 0) and signal (mu = $\beta t$) injection modes,
+3. runs the tool (or a bit-identical in-session port of it) fast enough to accumulate
+   thousands of replicates.
+
+The harness lives under `sim/`. Everything downstream reproduces from this document once
+the four phase drivers below have run.
+
+## Environment
+
+All R scripts are called through a wrapper `sim/run_r.sh` that invokes the `twas_gsea`
+conda env's Rscript with `env -i`, because the container's `~/.Renviron` hardcodes
+`R_LIBS_USER` to an R-4.2 user library that ABI-clashes with the env's R 4.0.
+
+
+```bash
+# One-off: create the conda env from the checked-in spec.
+micromamba env create -f env.yaml   # r-base=4.0.2, r-wgcna, r-vgam, r-qusage, ...
+
+# Wrapper (`sim/run_r.sh`) sets HOME to a scratch dir with no .Renviron and forces
+# R_LIBS_USER to a nonexistent path so only the env library is loaded.
+```
+
+Every code chunk below that starts an R script goes through `./sim/run_r.sh`.
+
+# Phase 1: build the correlation matrices
+
+Two matrices, one abs-K (the tool's default) and one signed-K (naive: WGCNA::cor without
+`abs()`).
+
+
+```bash
+./sim/run_r.sh build_cor_matrix.R \
+  --expression_ref /data/Reference_Expression_Whole_Blood.txt.gz \
+  --pos /data/Whole_Blood.pos \
+  --n_cores 10 \
+  --output sim/output/panel_cache/Whole_Blood
+# -> sim/output/panel_cache/Whole_Blood.CorMat.RDS  (~28 s)
+```
+
+
+```bash
+./sim/run_r.sh sim/build_signed_cor.R \
+  --expression_ref /data/Reference_Expression_Whole_Blood.txt.gz \
+  --pos /data/Whole_Blood.pos \
+  --n_cores 10 \
+  --output sim/output/panel_cache/Whole_Blood
+# -> sim/output/panel_cache/Whole_Blood.CorMatSigned.RDS  (~40 s)
+# Cross-check: identical rownames, dims, and block partition to abs-K.
+# NB: sparsity patterns can differ because per-block nearPD is not sign-invariant.
+```
+
+**Non-obvious property found here:** the stored `dgCMatrix` is asymmetric — only one
+triangle carries some off-diagonal entries. The tool's consumers (`chol`,
+`eigen(symmetric=TRUE)`) silently symmetrise on read, so it's harmless in the tool itself
+but any code that reads K entrywise must symmetrise explicitly.
+
+# Phase 2: generator + validation
+
+## Cache the per-block Cholesky and eigendecomposition once per panel
+
+
+```bash
+./sim/run_r.sh sim/build_panel_prep.R \
+  --cor_signed sim/output/panel_cache/Whole_Blood.CorMatSigned.RDS \
+  --output sim/output/panel_cache/Whole_Blood.prep.RDS   # ~11 s
+```
+
+`panel_prep()` stores `list(gene_universe, block_index, chol_list, eigen_list, ...)` and
+symmetrises each K-block via `(K + t(K))/2` before Cholesky/eigen. This is safe for the
+MVN sampler because the sampler cares about the closest symmetric approximation.
+
+## Draw one dataset from the harness (optional, standalone sanity check)
+
+
+```bash
+./sim/run_r.sh sim/simulate_twas.R \
+  --panel_prep sim/output/panel_cache/Whole_Blood.prep.RDS \
+  --template_twas /data/twas_results \
+  --injection null --seed 42 \
+  --output /tmp/sim_smoke_null.tsv
+```
+
+## Run the validation gate
+
+
+```bash
+./sim/run_r.sh sim/validate_generator.R
+# -> sim/output/validate/generator.pdf, generator.log
+```
+
+Reads the gate log and asserts three checks:
+
+- **Null marginal**: pooled TWAS.Z is $\mathcal{N}(0,1)$ (KS p > 0.001).
+- **Block correlation recovery**: empirical `cor(Z_null)` per block tracks $K_\text{signed}$
+  to within theoretical sampling error. Uses a z-scored residual with the correlation-SE
+  formula $(1-\rho^2)/\sqrt{n-1}$ — a scale-invariant check, so max-|diff| doesn't blow up
+  on large blocks.
+- **Injection sanity**: strong positive $\beta$ recovers a positive `cor(z, t)`.
+
+
+```r
+lg <- readLines("output/validate/generator.log")
+cat(paste(tail(lg, 12), collapse = "\n"))
+```
+
+```
+##   block 22 (size 105, 5460 pairs): RMSE=0.0452  mean(SE)=0.0447  |z|<=2: 95.6%  |z|<=3: 99.85%  PASS=TRUE
+##   block 48 (size 585, 170820 pairs): RMSE=0.0447  mean(SE)=0.0447  |z|<=2: 95.5%  |z|<=3: 99.73%  PASS=TRUE
+## injection beta=0.00: mean cor(z, t) = 0.001  (SE 0.002)
+## injection beta=0.20: mean cor(z, t) = 0.196  (SE 0.002)
+## injection beta=0.50: mean cor(z, t) = 0.446  (SE 0.001)
+## injection beta=1.00: mean cor(z, t) = 0.707  (SE 0.001)
+## wrote sim/output/validate/generator.pdf
+## wrote sim/output/validate/generator.log
+## GATE marginal-null KS p > 1e-3:  TRUE
+## GATE block-corr z-scored (|z|<=2 >=90% AND |z|<=3 >=98.5%) across chosen blocks:  TRUE
+## GATE injection: cor(z,t) at beta=0 <0.05 AND at beta=1 >0.2:  TRUE
+## OVERALL: PASS
+```
+
+# Phase 3: in-session core + parity + smoke
+
+## The in-session core
+
+`sim/R/in_session_core.R::score_dataset()` ports `TWAS-GSEA-fast.R` lines 174-419 into a
+pure R function so the runner can score thousands of simulated datasets from one R process,
+skipping R startup, `.CorMat.RDS` load, and per-block eigen recomputation.
+
+Two subtleties that had to be replicated bit-for-bit for parity:
+
+1. The tool feeds **asymmetric K** to both `eigen(symmetric=TRUE)` (reads lower) and to
+   `Cholesky(forceSymmetric(V_hat))` (reads upper). `score_dataset()` therefore does NOT
+   symmetrise K — it uses the raw dgCMatrix from `.CorMat*.RDS`.
+2. The tool drops duplicate `Alt_ID` rows, which quietly removes rows with NA Alt_ID
+   (e.g. genes with no Entrez in the ENSG→Entrez map, ~985 of 7,813 on Whole_Blood).
+   The runner replicates this dedup step upstream.
+
+## Parity gate
+
+
+```bash
+./sim/run_r.sh sim/parity_check.R
+```
+
+7 scenarios spanning {null, signal} × {property, gmt} × {abs-K, signed-K} ×
+{one-sided, two-sided} × {probit, directional}. Each simulated dataset is scored by both
+paths and P/Estimate/N_Mem_Avail are compared.
+
+
+```r
+p <- fread("output/parity/parity_summary.tsv")
+knitr::kable(p, digits = c(NA, NA, 3, 3, 0, 0, 0, 1, 1))
+```
+
+
+
+|name                      | seed| d_p| d_est| d_nm| n_only_cli| n_only_ins| cli_secs| ins_secs|
+|:-------------------------|----:|---:|-----:|----:|----------:|----------:|--------:|--------:|
+|null_prop_probit_absK     |   NA|   0|     0|    0|          0|          0|     11.4|      2.1|
+|null_prop_probit_absK     |   NA|   0|     0|    0|          0|          0|     13.3|      1.4|
+|null_prop_probit_absK     |   NA|   0|     0|    0|          0|          0|     16.4|      1.2|
+|null_gmt_probit_absK      |   NA|   0|     0|    0|          0|          0|     17.0|      1.1|
+|signal_prop_dir2s_signedK |   NA|   0|     0|    0|          0|          0|     14.0|      1.2|
+|signal_prop_dir2s_signedK |   NA|   0|     0|    0|          0|          0|     14.1|      1.1|
+|signal_gmt_dir1s_absK     |   NA|   0|     0|    0|          0|          0|     17.7|      1.0|
+
+Result: worst `|dP|` = 2.63e-7 (one seed near a Brent boundary), typical 1e-13 to 1e-15;
+worst `|dEst|` = 5.9e-9. Gate at `|dP| ≤ 1e-5` because the CLI's default REML tolerance is
+1e-6 so P is only defined to that precision.
+
+## Smoke: timing + projection
+
+
+```bash
+./sim/run_r.sh sim/smoke.R --n_null 20 --n_signal 20 --n_cores 10
+# 6 arms x 20 reps at 10-way = 124 s wall.
+# Per-rep wall times: cmap 3.5 s, gmt 9.8 s, ternary 2.4 s, sig_* ~1 s.
+```
+
+# Phase 4: full grid, aggregation, plots
+
+## Scenario grid
+
+Written by `sim/write_scenarios.R`; 99 scenarios in three groups:
+
+- **T1E on real drug panels** (property mode): CMAP (3083 drugs) and ternary (2274 drugs)
+  under {magnitude/probit + abs-K, directional-2s + abs-K, directional-2s + signed-K},
+  1000 reps each.
+- **T1E on the full c2 gmt** (set mode): {magnitude, directional-1s + abs-K,
+  directional-2s + signed-K}, 500 reps each.
+- **Directional headline**: fixed synthetic signed signature $t$ (sparsity 0.05,
+  signature_seed=111). Observations are three transforms of the same $t$:
+  - `sig_cont` = $t$ + Gaussian noise (SD 1)
+  - `sig_tern` = $\text{sign}(t) \cdot \mathbb{1}[|t| > \tau]$
+  - `sig_bin`  = $\mathbb{1}[|t| > \tau]$
+
+  Sweep 3 forms × 3 modes (directional 2-sided, directional 1-sided, magnitude) ×
+  2 K matrices × 5 $\beta$ levels $\{-0.4, -0.2, 0, 0.2, 0.4\}$ = 90 cells × 300 reps.
+
+
+```bash
+./sim/run_r.sh sim/write_scenarios.R
+# -> sim/scenarios.tsv (99 rows)
+```
+
+## Run the grid
+
+
+```bash
+./sim/run_r.sh sim/run_grid.R \
+  --scenarios sim/scenarios.tsv \
+  --outdir sim/output/grid \
+  --n_cores 10
+# 34,500 tasks at 10-way parallelism -> 2h56m wall (projection was 99 min;
+# overshoot from mc.preschedule=FALSE fork overhead at scale).
+# -> sim/output/grid/<scenario_id>.long.rds x 99 files
+```
+
+## Aggregate and plot
+
+
+```bash
+./sim/run_r.sh sim/aggregate.R
+./sim/run_r.sh sim/plots.R
+# -> sim/output/aggregate/scenario_summary.tsv   (99 rows)
+# -> sim/output/aggregate/power_summary.tsv      (72 rows)
+# -> sim/output/plots/fig1_t1e_qq.pdf .. fig5_absK_vs_signedK.pdf
+```
+
+# Results
+
+## T1E on real property panels + gmt
+
+
+```r
+s <- fread("output/aggregate/scenario_summary.tsv")
+t1e_real <- s[grepl("^t1e_", scenario_id), .(scenario_id, arm, feature_source, n_reps,
+                                                n_features,
+                                                `frac P<0.05` = round(frac_p_lt_05, 4),
+                                                `FWER@0.05`   = round(fwer_at_05,   3),
+                                                `mean #FD`    = round(mean_n_fd,    2))]
+knitr::kable(t1e_real[order(feature_source, arm)])
+```
+
+
+
+|scenario_id                     |arm             |feature_source | n_reps| n_features| frac P<0.05| FWER@0.05| mean #FD|
+|:-------------------------------|:---------------|:--------------|------:|----------:|-----------:|---------:|--------:|
+|t1e_cmap_a375_full_dir2s_abs    |dir2s_absK      |cmap_a375_full |   1000|       3083|      0.0498|     0.048|     0.10|
+|t1e_cmap_a375_full_dir2s_signed |dir2s_signedK   |cmap_a375_full |   1000|       3083|      0.2736|     0.854|   509.37|
+|t1e_cmap_a375_full_mag          |mag_probit_absK |cmap_a375_full |   1000|       3083|      0.0494|     0.048|     0.11|
+|t1e_gmt_dir1s_abs               |dir1s_absK      |gmt_c2_full    |    500|       7129|      0.0509|     0.044|     0.05|
+|t1e_gmt_dir2s_signed            |dir2s_signedK   |gmt_c2_full    |    500|       7129|      0.2026|     0.996|   768.55|
+|t1e_gmt_mag                     |mag_probit_absK |gmt_c2_full    |    500|       7129|      0.0504|     0.036|     0.05|
+|t1e_ternary_full_dir2s_abs      |dir2s_absK      |ternary_full   |   1000|        945|      0.0505|     0.066|     0.08|
+|t1e_ternary_full_dir2s_signed   |dir2s_signedK   |ternary_full   |   1000|        945|      0.1948|     0.968|    93.73|
+|t1e_ternary_full_mag            |mag_probit_absK |ternary_full   |   1000|        945|      0.0515|     0.050|     0.08|
+
+**The abs-K arms (directional AND magnitude/probit) are correctly calibrated** at the
+nominal 5% per-test rate and ~5% family-wise error rate.
+
+**The directional + signed-K combination catastrophically inflates T1E** — per-test rate
+0.19-0.27 (4-5× nominal), FWER 0.85-1.00, with hundreds of false discoveries per
+replicate (768 out of 7129 gmt sets in the worst case). This is a systematic misspecification,
+not sampling noise (n_reps = 500 to 1000 per scenario).
+
+## T1E on the directional-headline null cells ($\beta=0$)
+
+
+```r
+dh0 <- s[grepl("^dh_", scenario_id) & beta == 0,
+          .(feature_source, arm, cor_matrix,
+            `frac P<0.05` = round(frac_p_lt_05, 4))]
+knitr::kable(dh0[order(feature_source, arm, cor_matrix)])
+```
+
+
+
+|feature_source |arm               |cor_matrix | frac P<0.05|
+|:--------------|:-----------------|:----------|-----------:|
+|sig_bin        |dir1s_absK        |abs        |      0.0433|
+|sig_bin        |dir1s_signedK     |signed     |      0.2233|
+|sig_bin        |dir2s_absK        |abs        |      0.0467|
+|sig_bin        |dir2s_signedK     |signed     |      0.4400|
+|sig_bin        |magnitude_absK    |abs        |      0.0633|
+|sig_bin        |magnitude_signedK |signed     |      0.0600|
+|sig_cont       |dir1s_absK        |abs        |      0.0700|
+|sig_cont       |dir1s_signedK     |signed     |      0.2567|
+|sig_cont       |dir2s_absK        |abs        |      0.0633|
+|sig_cont       |dir2s_signedK     |signed     |      0.4067|
+|sig_cont       |magnitude_absK    |abs        |      0.0567|
+|sig_cont       |magnitude_signedK |signed     |      0.0467|
+|sig_tern       |dir1s_absK        |abs        |      0.0367|
+|sig_tern       |dir1s_signedK     |signed     |      0.2967|
+|sig_tern       |dir2s_absK        |abs        |      0.0533|
+|sig_tern       |dir2s_signedK     |signed     |      0.3767|
+|sig_tern       |magnitude_absK    |abs        |      0.0433|
+|sig_tern       |magnitude_signedK |signed     |      0.0533|
+
+Same pattern replays across all three feature forms (sig_cont, sig_tern, sig_bin):
+abs-K arms are calibrated; signed-K + directional is 0.22-0.44 vs nominal 0.05.
+**Crucially, signed-K + magnitude/probit is fine (~0.05)** — the inflation is a specific
+interaction between the signed relmat and the directional response variable.
+
+## Directional headline power
+
+
+```r
+p <- fread("output/aggregate/power_summary.tsv")
+w <- p[beta %in% c(-0.4, 0.4),
+        .(feature_source, arm, cor_matrix, beta,
+          `mean Est` = round(mean_est, 3),
+          `power(P<.05)` = round(power_p05, 3),
+          `sign recovery` = round(sign_recovery, 3))]
+knitr::kable(w[order(feature_source, arm, cor_matrix, beta)])
+```
+
+
+
+|feature_source |arm               |cor_matrix | beta| mean Est| power(P<.05)| sign recovery|
+|:--------------|:-----------------|:----------|----:|--------:|------------:|-------------:|
+|sig_bin        |dir1s_absK        |abs        | -0.4|    0.101|        0.583|         0.000|
+|sig_bin        |dir1s_absK        |abs        |  0.4|   -0.097|        0.000|         0.000|
+|sig_bin        |dir1s_signedK     |signed     | -0.4|    0.113|        0.727|         0.000|
+|sig_bin        |dir1s_signedK     |signed     |  0.4|   -0.116|        0.000|         0.000|
+|sig_bin        |dir2s_absK        |abs        | -0.4|    0.100|        0.450|         0.000|
+|sig_bin        |dir2s_absK        |abs        |  0.4|   -0.102|        0.463|         0.000|
+|sig_bin        |dir2s_signedK     |signed     | -0.4|    0.114|        0.663|         0.000|
+|sig_bin        |dir2s_signedK     |signed     |  0.4|   -0.113|        0.623|         0.000|
+|sig_bin        |magnitude_absK    |abs        | -0.4|    1.075|        1.000|         0.000|
+|sig_bin        |magnitude_absK    |abs        |  0.4|    1.071|        1.000|         1.000|
+|sig_bin        |magnitude_signedK |signed     | -0.4|    1.064|        1.000|         0.000|
+|sig_bin        |magnitude_signedK |signed     |  0.4|    1.068|        1.000|         1.000|
+|sig_cont       |dir1s_absK        |abs        | -0.4|   -0.278|        0.000|         0.000|
+|sig_cont       |dir1s_absK        |abs        |  0.4|    0.277|        1.000|         1.000|
+|sig_cont       |dir1s_signedK     |signed     | -0.4|   -0.273|        0.000|         0.000|
+|sig_cont       |dir1s_signedK     |signed     |  0.4|    0.273|        1.000|         1.000|
+|sig_cont       |dir2s_absK        |abs        | -0.4|   -0.279|        1.000|         1.000|
+|sig_cont       |dir2s_absK        |abs        |  0.4|    0.279|        1.000|         1.000|
+|sig_cont       |dir2s_signedK     |signed     | -0.4|   -0.272|        1.000|         1.000|
+|sig_cont       |dir2s_signedK     |signed     |  0.4|    0.272|        1.000|         1.000|
+|sig_cont       |magnitude_absK    |abs        | -0.4|   -0.030|        0.000|         0.000|
+|sig_cont       |magnitude_absK    |abs        |  0.4|   -0.030|        0.000|         0.000|
+|sig_cont       |magnitude_signedK |signed     | -0.4|   -0.031|        0.000|         0.000|
+|sig_cont       |magnitude_signedK |signed     |  0.4|   -0.029|        0.000|         0.000|
+|sig_tern       |dir1s_absK        |abs        | -0.4|   -0.312|        0.000|         0.000|
+|sig_tern       |dir1s_absK        |abs        |  0.4|    0.312|        1.000|         1.000|
+|sig_tern       |dir1s_signedK     |signed     | -0.4|   -0.307|        0.000|         0.000|
+|sig_tern       |dir1s_signedK     |signed     |  0.4|    0.308|        1.000|         1.000|
+|sig_tern       |dir2s_absK        |abs        | -0.4|   -0.311|        1.000|         1.000|
+|sig_tern       |dir2s_absK        |abs        |  0.4|    0.312|        1.000|         1.000|
+|sig_tern       |dir2s_signedK     |signed     | -0.4|   -0.309|        1.000|         1.000|
+|sig_tern       |dir2s_signedK     |signed     |  0.4|    0.307|        1.000|         1.000|
+|sig_tern       |magnitude_absK    |abs        | -0.4|   -0.020|        0.000|         0.000|
+|sig_tern       |magnitude_absK    |abs        |  0.4|   -0.021|        0.003|         0.003|
+|sig_tern       |magnitude_signedK |signed     | -0.4|   -0.020|        0.003|         0.000|
+|sig_tern       |magnitude_signedK |signed     |  0.4|   -0.021|        0.000|         0.000|
+
+- **Directional two-sided on abs-K** (the tool's proper setting): power = 1.0 at $|\beta|=0.4$
+  for both signs on continuous and signed-ternary properties. Estimates track $\beta$ linearly
+  ($\pm 0.28$ at $\pm 0.4$). Sign recovery = 1.0.
+- **Directional one-sided on abs-K**: power = 1.0 at $\beta=+0.4$, 0.0 at $\beta=-0.4$ —
+  reversal missed by design.
+- **Magnitude on signed properties**: near-zero power. Correct — $|Z|$ is direction-blind
+  and the injected mean has expected magnitude ~0.
+- **Magnitude on unsigned binary property**: power = 1.0 — unsigned enrichment picked up
+  correctly because the annotated genes have larger $|Z|$ regardless of sign.
+- **Directional on unsigned binary property**: sign_recovery = 0 (reversal). This is an
+  artefact of the specific `signature_seed=111` — the 391 rnorm draws happen to have
+  non-zero empirical mean, aligning Estimate against $\beta$. A single-seed study exposes
+  the sensitivity but can't make a general claim; averaging across seeds would be needed.
+
+## Signed-K vs abs-K power at matched $|\beta|$
+
+
+```r
+w2 <- dcast(p[beta == 0.4 & !is.na(power_p05)],
+             feature_source + arm ~ cor_matrix, value.var = "power_p05")
+setnames(w2, c("feature_source","arm","power_absK","power_signedK"))
+w2[, delta := round(power_signedK - power_absK, 3)]
+knitr::kable(w2)
+```
+
+
+
+|feature_source |arm               | power_absK| power_signedK| delta|
+|:--------------|:-----------------|----------:|-------------:|-----:|
+|sig_bin        |dir1s_absK        |  0.0000000|            NA|    NA|
+|sig_bin        |dir1s_signedK     |         NA|     0.0000000|    NA|
+|sig_bin        |dir2s_absK        |  0.4633333|            NA|    NA|
+|sig_bin        |dir2s_signedK     |         NA|     0.6233333|    NA|
+|sig_bin        |magnitude_absK    |  1.0000000|            NA|    NA|
+|sig_bin        |magnitude_signedK |         NA|     1.0000000|    NA|
+|sig_cont       |dir1s_absK        |  1.0000000|            NA|    NA|
+|sig_cont       |dir1s_signedK     |         NA|     1.0000000|    NA|
+|sig_cont       |dir2s_absK        |  1.0000000|            NA|    NA|
+|sig_cont       |dir2s_signedK     |         NA|     1.0000000|    NA|
+|sig_cont       |magnitude_absK    |  0.0000000|            NA|    NA|
+|sig_cont       |magnitude_signedK |         NA|     0.0000000|    NA|
+|sig_tern       |dir1s_absK        |  1.0000000|            NA|    NA|
+|sig_tern       |dir1s_signedK     |         NA|     1.0000000|    NA|
+|sig_tern       |dir2s_absK        |  1.0000000|            NA|    NA|
+|sig_tern       |dir2s_signedK     |         NA|     1.0000000|    NA|
+|sig_tern       |magnitude_absK    |  0.0033333|            NA|    NA|
+|sig_tern       |magnitude_signedK |         NA|     0.0000000|    NA|
+
+Signed-K gives higher raw power on the unsigned-binary case, but that "power" is
+uninterpretable given the T1E inflation shown above. On the properly-calibrated
+directional arms (sig_cont, sig_tern), abs-K and signed-K reach the same 1.0 power at
+$|\beta|=0.4$, so signed-K offers no real gain — only a calibration cost.
+
+## Figures
+
+The plots directory holds:
+
+- `fig1_t1e_qq.pdf` — QQ of pooled P per T1E arm (nine panels).
+- `fig2_dh_power_vs_beta.pdf` — power curves vs $\beta$ by (feature × arm × K).
+- `fig3_dh_sign_recovery.pdf` — fraction of significant reps with correct-sign Estimate.
+- `fig4_discretisation_penalty.pdf` — power(sig_cont) - power(sig_tern) at matched $\beta$.
+- `fig5_absK_vs_signedK.pdf` — power($K$=signed) - power($K$=abs) per arm.
+
+# Discussion
+
+## Practical implication
+
+The shipped tool's default `abs(K)` relmat is correctly calibrated under both directional
+and magnitude modes. A naive drop-in switch to signed $K$ (i.e. removing the `abs()` in
+`R/build_cor_matrix_helper.R:40`) is **not safe**: T1E inflates 4-5× and FWER approaches 1.
+This is a specific interaction between the signed relmat and the directional response
+variable — signed $K$ under magnitude/probit remains calibrated.
+
+## Limitations
+
+- **Single tissue / single panel.** Everything is Whole_Blood, 7,813 genes, 503 samples.
+  The magnitude of inflation could change with different block-size distributions or
+  different sample sizes.
+- **Single signature realisation** for the directional headline (signature_seed = 111).
+  A properly general claim about e.g. "unsigned-binary → null directional" needs multiple
+  seeds.
+- **Synthetic signatures only** in the headline arm. The "realism" arm proposed in the
+  original spec (inject via a real drug signature, recover via continuous vs ternary
+  discretisation) was not run.
+- **Fixed sparsity / $\sigma_{obs}$ / $\tau$** for the sig_* forms — no sweep over these.
+- **CMAP / ternary property panels** were used only for the T1E-real block; the
+  power side wasn't run against real drug signatures either.
+- The `dgCMatrix` produced by `build_cor_matrix.R` is stored asymmetrically; while
+  `score_dataset()` reproduces the tool's exact numerical behaviour on this asymmetry,
+  a downstream user would be safer if the tool wrote symmetric K.
+
+## Future directions
+
+- **Root-cause the signed-K T1E inflation.** The most likely culprit is the interaction
+  between negative $K$ eigenvalues (after nearPD-repair) and the profiled REML
+  likelihood's boundary behaviour. A per-block simulation with known signed-K covariance
+  would isolate whether the issue is REML or the GLS whitening.
+- **Average across signature seeds** in the directional headline to give the sig_bin
+  arm a fair null test.
+- **Add a realism arm** using real drug signatures as $t$, then testing continuous vs
+  ternary discretisation of the same signature.
+- **Sweep sparsity and $\sigma_{obs}$** to characterise discretisation penalty as a
+  function of the ratio of true-signal to noise.
+- **Multi-panel comparison** (e.g. brain-tissue panels with different block-size
+  distributions) to test whether the abs-K calibration is panel-general.
+- **Fix `build_cor_matrix_helper.R`** to write a symmetric `dgCMatrix` regardless
+  of the sparse_struc indexing quirk. Silently harmless today, potentially confusing
+  tomorrow.
