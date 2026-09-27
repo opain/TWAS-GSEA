@@ -462,7 +462,7 @@ Results <- Results[order(Results$P), ]
 
 out_suffix <- if(pT == 1) '' else paste0('.pT', pT)
 out_file   <- paste0(opt$output, out_suffix, '.competitive.txt')
-write.table(Results, out_file, col.names = TRUE, row.names = FALSE, quote = FALSE)
+write.table(Results, out_file, col.names = TRUE, row.names = FALSE, quote = TRUE)
 log_msg('Wrote ', out_file, ' (', nrow(Results), ' rows).\n', sep = '')
 
 }  # end for(pT ...)
